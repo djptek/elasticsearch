@@ -272,16 +272,12 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
         }
     }
 
-    public abstract static class AbstractGeometryFieldType<Parsed, Processed> extends MappedFieldType {
+    public abstract static class SearchableGeometryFieldType<Parsed, Processed> extends MappedFieldType {
         protected Orientation orientation = Defaults.ORIENTATION.value();
-
-        protected Indexer<Parsed, Processed> geometryIndexer;
-
-        protected Parser<Parsed> geometryParser;
 
         protected QueryProcessor geometryQueryBuilder;
 
-        protected AbstractGeometryFieldType() {
+        protected SearchableGeometryFieldType() {
             setIndexOptions(IndexOptions.DOCS);
             setTokenized(false);
             setStored(false);
@@ -289,10 +285,42 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
             setOmitNorms(true);
         }
 
-        protected AbstractGeometryFieldType(AbstractGeometryFieldType ref) {
+        protected SearchableGeometryFieldType(SearchableGeometryFieldType ref) {
             super(ref);
             this.orientation = ref.orientation;
         }
+
+        @Override
+        public abstract SearchableGeometryFieldType clone();
+
+        @Override
+        public String typeName() {
+            return GeoPointFieldMapper.CONTENT_TYPE;
+        }
+
+        @Override
+        public Query termQuery(Object value, QueryShardContext context) {
+            throw new QueryShardException(context,
+                "Geometry fields do not support exact searching, use dedicated geometry queries instead");
+        }
+
+        public void setGeometryQueryBuilder(QueryProcessor geometryQueryBuilder)  {
+            this.geometryQueryBuilder = geometryQueryBuilder;
+        }
+
+        public QueryProcessor geometryQueryBuilder() {
+            return geometryQueryBuilder;
+        }
+    }
+
+    public abstract static class AbstractGeometryFieldType<Parsed, Processed> extends SearchableGeometryFieldType {
+        protected Indexer<Parsed, Processed> geometryIndexer;
+
+        protected Parser<Parsed> geometryParser;
+
+        public AbstractGeometryFieldType() { super(); }
+
+        public AbstractGeometryFieldType(AbstractGeometryFieldType ref) { super(ref); }
 
         @Override
         public boolean equals(Object o) {
@@ -300,6 +328,9 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
             AbstractGeometryFieldType that = (AbstractGeometryFieldType) o;
             return orientation == that.orientation;
         }
+
+        @Override
+        public abstract AbstractGeometryFieldType clone();
 
         @Override
         public int hashCode() {
@@ -318,12 +349,6 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
             return new TermQuery(new Term(FieldNamesFieldMapper.NAME, name()));
         }
 
-        @Override
-        public Query termQuery(Object value, QueryShardContext context) {
-            throw new QueryShardException(context,
-                "Geometry fields do not support exact searching, use dedicated geometry queries instead");
-        }
-
         public void setGeometryIndexer(Indexer<Parsed, Processed> geometryIndexer) {
             this.geometryIndexer = geometryIndexer;
         }
@@ -338,10 +363,6 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
 
         protected Parser<Parsed> geometryParser() {
             return geometryParser;
-        }
-
-        public void setGeometryQueryBuilder(QueryProcessor geometryQueryBuilder)  {
-            this.geometryQueryBuilder = geometryQueryBuilder;
         }
 
         public QueryProcessor geometryQueryBuilder() {

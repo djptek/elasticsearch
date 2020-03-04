@@ -36,11 +36,9 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.support.XContentMapValues;
-import org.elasticsearch.geometry.Geometry;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.plain.AbstractLatLonPointDVIndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
-import org.elasticsearch.index.query.QueryShardException;
 import org.elasticsearch.index.query.VectorGeoPointShapeQueryProcessor;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
 import org.elasticsearch.search.aggregations.support.ValuesSourceType;
@@ -216,25 +214,24 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
         throw new UnsupportedOperationException("Parsing is implemented in parse(), this method should NEVER be called");
     }
 
-    public static class GeoPointFieldType extends AbstractGeometryFieldMapper.AbstractGeometryFieldType<Geometry, Geometry> {
-        public GeoPointFieldType() {
-        }
+    //tidyme public static final class GeoPointFieldType extends AbstractGeometryFieldMapper.SearchableGeometryFieldType<Geometry, Geometry> {
+    public static final class GeoPointFieldType extends AbstractGeometryFieldMapper.SearchableGeometryFieldType {
+        public GeoPointFieldType() { super(); }
 
-        GeoPointFieldType(GeoPointFieldType ref) {
-            super(ref);
-            this.geometryQueryBuilder  = ref.geometryQueryBuilder;
-        }
+        public GeoPointFieldType(AbstractGeometryFieldMapper.SearchableGeometryFieldType ref) { super(ref); }
 
-        @Override
-        public String typeName() {
-            return CONTENT_TYPE;
-        }
+        //public GeoPointFieldType(AbstractGeometryFieldMapper.AbstractGeometryFieldType ref) { super(ref); }
 
         @Override
-        public MappedFieldType clone() {
+        public GeoPointFieldType clone() {
             return new GeoPointFieldType(this);
         }
-
+/* tidyme
+        GeoPointFieldType(GeoPointFieldMapper.GeoPointFieldType ref) {
+            super((AbstractGeometryFieldMapper.AbstractGeometryFieldType) ref);
+            this.geometryQueryBuilder  = ref.geometryQueryBuilder;
+        }
+*/
         @Override
         public IndexFieldData.Builder fielddataBuilder(String fullyQualifiedIndexName) {
             failIfNoDocValues();
@@ -253,37 +250,6 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
             } else {
                 return new TermQuery(new Term(FieldNamesFieldMapper.NAME, name()));
             }
-        }
-
-        @Override
-        public Query termQuery(Object value, QueryShardContext context) {
-            throw new QueryShardException(context,
-                "Geo fields do not support exact searching, use dedicated geo queries instead: ["
-                + name() + "]");
-        }
-
-        @Override
-        public void setGeometryIndexer(AbstractGeometryFieldMapper.Indexer<Geometry, Geometry> geometryIndexer) {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Indexation of Geometries");
-        }
-
-        @Override
-        protected AbstractGeometryFieldMapper.Indexer<Geometry, Geometry> geometryIndexer() {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Indexation of Geometries");
-        }
-
-        @Override
-        public void setGeometryParser(AbstractGeometryFieldMapper.Parser<Geometry> geometryParser) {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Parsing of Geometries");
-        }
-
-        @Override
-        protected AbstractGeometryFieldMapper.Parser<Geometry> geometryParser() {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Parsing of Geometries");
         }
     }
 
