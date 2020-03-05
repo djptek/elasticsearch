@@ -39,14 +39,11 @@ import org.elasticsearch.geometry.MultiPoint;
 import org.elasticsearch.geometry.MultiPolygon;
 import org.elasticsearch.geometry.Point;
 import org.elasticsearch.geometry.Rectangle;
-import org.elasticsearch.index.mapper.AbstractGeometryFieldMapper;
-import org.elasticsearch.index.mapper.GeoShapeFieldMapper;
-import org.elasticsearch.index.mapper.GeoShapeIndexer;
-import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.*;
 
 import static org.elasticsearch.index.mapper.GeoShapeIndexer.toLucenePolygon;
 
-public class VectorGeoShapeQueryProcessor implements AbstractGeometryFieldMapper.QueryProcessor {
+public class VectorGeoShapeQueryProcessor implements SearchableGeometryFieldType.QueryProcessor {
 
     @Override
     public Query process(Geometry shape, String fieldName, ShapeRelation relation, QueryShardContext context) {

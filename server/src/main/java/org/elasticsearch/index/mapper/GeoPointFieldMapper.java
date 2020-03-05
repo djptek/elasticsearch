@@ -215,23 +215,16 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
     }
 
     //tidyme public static final class GeoPointFieldType extends AbstractGeometryFieldMapper.SearchableGeometryFieldType<Geometry, Geometry> {
-    public static final class GeoPointFieldType extends AbstractGeometryFieldMapper.SearchableGeometryFieldType {
+    public static final class GeoPointFieldType extends SearchableGeometryFieldType {
         public GeoPointFieldType() { super(); }
 
-        public GeoPointFieldType(AbstractGeometryFieldMapper.SearchableGeometryFieldType ref) { super(ref); }
-
-        //public GeoPointFieldType(AbstractGeometryFieldMapper.AbstractGeometryFieldType ref) { super(ref); }
+        public GeoPointFieldType(SearchableGeometryFieldType ref) { super(ref); }
 
         @Override
         public GeoPointFieldType clone() {
             return new GeoPointFieldType(this);
         }
-/* tidyme
-        GeoPointFieldType(GeoPointFieldMapper.GeoPointFieldType ref) {
-            super((AbstractGeometryFieldMapper.AbstractGeometryFieldType) ref);
-            this.geometryQueryBuilder  = ref.geometryQueryBuilder;
-        }
-*/
+
         @Override
         public IndexFieldData.Builder fielddataBuilder(String fullyQualifiedIndexName) {
             failIfNoDocValues();

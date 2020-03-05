@@ -43,12 +43,13 @@ import org.elasticsearch.geometry.ShapeType;
 import org.elasticsearch.index.mapper.AbstractGeometryFieldMapper;
 import org.elasticsearch.index.mapper.GeoPointFieldMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.SearchableGeometryFieldType;
 
 import java.util.ArrayList;
 
 import static org.elasticsearch.index.mapper.GeoShapeIndexer.toLucenePolygon;
 
-public class VectorGeoPointShapeQueryProcessor implements AbstractGeometryFieldMapper.QueryProcessor {
+public class VectorGeoPointShapeQueryProcessor implements SearchableGeometryFieldType.QueryProcessor {
 
     @Override
     public Query process(Geometry shape, String fieldName, ShapeRelation relation, QueryShardContext context) {

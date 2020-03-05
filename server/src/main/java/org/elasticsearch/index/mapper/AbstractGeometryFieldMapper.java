@@ -18,7 +18,6 @@
  */
 package org.elasticsearch.index.mapper;
 
-import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Query;
@@ -38,7 +37,6 @@ import org.elasticsearch.common.xcontent.support.XContentMapValues;
 import org.elasticsearch.geometry.Geometry;
 import org.elasticsearch.index.mapper.LegacyGeoShapeFieldMapper.DeprecatedParameters;
 import org.elasticsearch.index.query.QueryShardContext;
-import org.elasticsearch.index.query.QueryShardException;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -89,19 +87,6 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
 
         Parsed parse(XContentParser parser, AbstractGeometryFieldMapper mapper) throws IOException, ParseException;
 
-    }
-
-    /**
-     * interface representing a query builder that generates a query from the given shape
-     */
-    public interface QueryProcessor {
-        Query process(Geometry shape, String fieldName, ShapeRelation relation, QueryShardContext context);
-
-        @Deprecated
-        default Query process(Geometry shape, String fieldName, SpatialStrategy strategy, ShapeRelation relation,
-                              QueryShardContext context) {
-            return process(shape, fieldName, relation, context);
-        }
     }
 
     public abstract static class Builder<T extends Builder, Y extends AbstractGeometryFieldMapper>
@@ -272,48 +257,9 @@ public abstract class AbstractGeometryFieldMapper<Parsed, Processed> extends Fie
         }
     }
 
-    public abstract static class SearchableGeometryFieldType<Parsed, Processed> extends MappedFieldType {
-        protected Orientation orientation = Defaults.ORIENTATION.value();
-
-        protected QueryProcessor geometryQueryBuilder;
-
-        protected SearchableGeometryFieldType() {
-            setIndexOptions(IndexOptions.DOCS);
-            setTokenized(false);
-            setStored(false);
-            setStoreTermVectors(false);
-            setOmitNorms(true);
-        }
-
-        protected SearchableGeometryFieldType(SearchableGeometryFieldType ref) {
-            super(ref);
-            this.orientation = ref.orientation;
-        }
-
-        @Override
-        public abstract SearchableGeometryFieldType clone();
-
-        @Override
-        public String typeName() {
-            return GeoPointFieldMapper.CONTENT_TYPE;
-        }
-
-        @Override
-        public Query termQuery(Object value, QueryShardContext context) {
-            throw new QueryShardException(context,
-                "Geometry fields do not support exact searching, use dedicated geometry queries instead");
-        }
-
-        public void setGeometryQueryBuilder(QueryProcessor geometryQueryBuilder)  {
-            this.geometryQueryBuilder = geometryQueryBuilder;
-        }
-
-        public QueryProcessor geometryQueryBuilder() {
-            return geometryQueryBuilder;
-        }
-    }
-
     public abstract static class AbstractGeometryFieldType<Parsed, Processed> extends SearchableGeometryFieldType {
+        protected ShapeBuilder.Orientation orientation = AbstractGeometryFieldMapper.Defaults.ORIENTATION.value();
+
         protected Indexer<Parsed, Processed> geometryIndexer;
 
         protected Parser<Parsed> geometryParser;

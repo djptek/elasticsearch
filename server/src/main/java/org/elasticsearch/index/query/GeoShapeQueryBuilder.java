@@ -34,10 +34,7 @@ import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.geometry.Geometry;
-import org.elasticsearch.index.mapper.AbstractGeometryFieldMapper;
-import org.elasticsearch.index.mapper.GeoPointFieldMapper;
-import org.elasticsearch.index.mapper.GeoShapeFieldMapper;
-import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.*;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -200,8 +197,24 @@ public class GeoShapeQueryBuilder extends AbstractGeometryQueryBuilder<GeoShapeQ
                 + String.join(",", validContentTypes()) +  "]");
         }
 
-        final AbstractGeometryFieldMapper.SearchableGeometryFieldType ft = (AbstractGeometryFieldMapper.SearchableGeometryFieldType) fieldType;
+        if (fieldType.typeName().equals(GeoShapeFieldMapper.CONTENT_TYPE)) {
+            final AbstractGeometryFieldMapper.AbstractGeometryFieldType ft =
+                (AbstractGeometryFieldMapper.AbstractGeometryFieldType) fieldType;
+            // strategy is deprecated, fix this after shape/point refactor complete
+            return new ConstantScoreQuery(ft.geometryQueryBuilder().process(shape, fieldName, strategy, relation, context));
+        } else {
+            // if (fieldType.typeName().equals(GeoShapeFieldMapper.CONTENT_TYPE)) {
+            final GeoPointFieldMapper.GeoPointFieldType ft =
+                (GeoPointFieldMapper.GeoPointFieldType) fieldType;
+            // strategy is deprecated, fix this after shape/point refactor complete
+            return new ConstantScoreQuery(ft.geometryQueryBuilder().process(shape, fieldName, relation, context));
+        }
+        /*
+        final SearchableGeometryFieldType ft =
+            (SearchableGeometryFieldType) fieldType;
+        // strategy is deprecated, fix this after shape/point refactor complete
         return new ConstantScoreQuery(ft.geometryQueryBuilder().process(shape, fieldName, strategy, relation, context));
+        */
     }
 
     @Override
