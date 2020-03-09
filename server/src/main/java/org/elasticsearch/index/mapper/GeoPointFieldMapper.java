@@ -36,12 +36,10 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.common.xcontent.support.XContentMapValues;
-import org.elasticsearch.geometry.Geometry;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.plain.AbstractLatLonPointDVIndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.query.QueryShardException;
-import org.elasticsearch.index.query.VectorGeoPointShapeQueryProcessor;
 import org.elasticsearch.search.aggregations.support.CoreValuesSourceType;
 import org.elasticsearch.search.aggregations.support.ValuesSourceType;
 
@@ -73,7 +71,6 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
         public static final Explicit<Boolean> IGNORE_Z_VALUE = new Explicit<>(true, false);
 
         static {
-            FIELD_TYPE.setGeometryQueryBuilder(new VectorGeoPointShapeQueryProcessor());
             FIELD_TYPE.setTokenized(false);
             FIELD_TYPE.setHasDocValues(true);
             FIELD_TYPE.setDimensions(2, Integer.BYTES);
@@ -216,13 +213,12 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
         throw new UnsupportedOperationException("Parsing is implemented in parse(), this method should NEVER be called");
     }
 
-    public static class GeoPointFieldType extends AbstractGeometryFieldMapper.AbstractGeometryFieldType<Geometry, Geometry> {
+    public static class GeoPointFieldType extends MappedFieldType {
         public GeoPointFieldType() {
         }
 
         GeoPointFieldType(GeoPointFieldType ref) {
             super(ref);
-            this.geometryQueryBuilder  = ref.geometryQueryBuilder;
         }
 
         @Override
@@ -260,30 +256,6 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
             throw new QueryShardException(context,
                 "Geo fields do not support exact searching, use dedicated geo queries instead: ["
                 + name() + "]");
-        }
-
-        @Override
-        public void setGeometryIndexer(AbstractGeometryFieldMapper.Indexer<Geometry, Geometry> geometryIndexer) {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Indexation of Geometries");
-        }
-
-        @Override
-        protected AbstractGeometryFieldMapper.Indexer<Geometry, Geometry> geometryIndexer() {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Indexation of Geometries");
-        }
-
-        @Override
-        public void setGeometryParser(AbstractGeometryFieldMapper.Parser<Geometry> geometryParser) {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Parsing of Geometries");
-        }
-
-        @Override
-        protected AbstractGeometryFieldMapper.Parser<Geometry> geometryParser() {
-            throw new UnsupportedOperationException("Field type ["
-                + CONTENT_TYPE + "] does not support Parsing of Geometries");
         }
     }
 

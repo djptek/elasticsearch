@@ -34,10 +34,10 @@ import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentParser;
 import org.elasticsearch.geometry.Geometry;
-import org.elasticsearch.index.mapper.AbstractGeometryFieldMapper;
 import org.elasticsearch.index.mapper.GeoPointFieldMapper;
 import org.elasticsearch.index.mapper.GeoShapeFieldMapper;
 import org.elasticsearch.index.mapper.MappedFieldType;
+import org.elasticsearch.index.mapper.SpatialFieldType;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -199,9 +199,8 @@ public class GeoShapeQueryBuilder extends AbstractGeometryQueryBuilder<GeoShapeQ
                 + NAME + "] query supports the following types ["
                 + String.join(",", validContentTypes()) +  "]");
         }
-
-        final AbstractGeometryFieldMapper.AbstractGeometryFieldType ft = (AbstractGeometryFieldMapper.AbstractGeometryFieldType) fieldType;
-        return new ConstantScoreQuery(ft.geometryQueryBuilder().process(shape, fieldName, strategy, relation, context));
+        // wrap geometry Query as a ConstantScoreQuery
+        return new ConstantScoreQuery(((SpatialFieldType)fieldType).spatialQuery(shape, fieldName, relation, context));
     }
 
     @Override

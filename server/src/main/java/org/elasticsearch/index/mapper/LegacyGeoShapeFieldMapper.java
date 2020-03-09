@@ -21,6 +21,9 @@ package org.elasticsearch.index.mapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.index.IndexOptions;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.spatial.prefix.PrefixTreeStrategy;
 import org.apache.lucene.spatial.prefix.RecursivePrefixTreeStrategy;
 import org.apache.lucene.spatial.prefix.TermQueryPrefixTreeStrategy;
@@ -28,11 +31,15 @@ import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.PackedQuadPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.QuadPrefixTree;
 import org.apache.lucene.spatial.prefix.tree.SpatialPrefixTree;
+import org.apache.lucene.spatial.query.SpatialArgs;
+import org.apache.lucene.spatial.query.SpatialOperation;
+import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchParseException;
 import org.elasticsearch.Version;
 import org.elasticsearch.common.Explicit;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.geo.GeoUtils;
+import org.elasticsearch.common.geo.ShapeRelation;
 import org.elasticsearch.common.geo.ShapesAvailability;
 import org.elasticsearch.common.geo.SpatialStrategy;
 import org.elasticsearch.common.geo.builders.ShapeBuilder;
@@ -44,12 +51,16 @@ import org.elasticsearch.common.unit.DistanceUnit;
 import org.elasticsearch.common.xcontent.LoggingDeprecationHandler;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.support.XContentMapValues;
-import org.elasticsearch.index.query.LegacyGeoShapeQueryProcessor;
+import org.elasticsearch.geometry.Geometry;
+import org.elasticsearch.index.query.ExistsQueryBuilder;
+import org.elasticsearch.index.query.QueryShardContext;
 import org.locationtech.spatial4j.shape.Shape;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+
+import static org.elasticsearch.search.SearchService.ALLOW_EXPENSIVE_QUERIES;
 
 /**
  * FieldMapper for indexing {@link org.locationtech.spatial4j.shape.Shape}s.
@@ -266,7 +277,6 @@ public class LegacyGeoShapeFieldMapper extends AbstractGeometryFieldMapper<Shape
 
             fieldType().setGeometryIndexer(new LegacyGeoShapeIndexer(fieldType()));
             fieldType().setGeometryParser(ShapeParser::parse);
-            fieldType().setGeometryQueryBuilder(new LegacyGeoShapeQueryProcessor(fieldType()));
 
             // field mapper handles this at build time
             // but prefix tree strategies require a name, so throw a similar exception
@@ -353,6 +363,45 @@ public class LegacyGeoShapeFieldMapper extends AbstractGeometryFieldMapper<Shape
         public int hashCode() {
             return Objects.hash(super.hashCode(), tree, strategy, pointsOnly, treeLevels, precisionInMeters, distanceErrorPct,
                     defaultDistanceErrorPct);
+        }
+
+        @Override
+        public Query spatialQuery(Geometry shape, String fieldName, ShapeRelation relation, QueryShardContext context) {
+            if (context.allowExpensiveQueries() == false) {
+                throw new ElasticsearchException("[geo-shape] queries on [PrefixTree geo shapes] cannot be executed when '"
+                    + ALLOW_EXPENSIVE_QUERIES.getKey() + "' is set to false.");
+            }
+
+            PrefixTreeStrategy prefixTreeStrategy = resolvePrefixTreeStrategy(this.strategy);
+            if (prefixTreeStrategy instanceof RecursivePrefixTreeStrategy && relation == ShapeRelation.DISJOINT) {
+                // this strategy doesn't support disjoint anymore: but it did
+                // before, including creating lucene fieldcache (!)
+                // in this case, execute disjoint as exists && !intersects
+                BooleanQuery.Builder bool = new BooleanQuery.Builder();
+                Query exists = ExistsQueryBuilder.newFilter(context, fieldName);
+                Query intersects = prefixTreeStrategy.makeQuery(getArgs(shape, ShapeRelation.INTERSECTS));
+                bool.add(exists, BooleanClause.Occur.MUST);
+                bool.add(intersects, BooleanClause.Occur.MUST_NOT);
+                return bool.build();
+            } else {
+                return prefixTreeStrategy.makeQuery(getArgs(shape, relation));
+            }
+        }
+
+        static SpatialArgs getArgs(Geometry shape, ShapeRelation relation) {
+            ShapeBuilder<?,?,?> shapeBuilder = GeoUtils.geometryToShapeBuilder(shape);
+            switch (relation) {
+                case DISJOINT:
+                    return new SpatialArgs(SpatialOperation.IsDisjointTo, shapeBuilder.buildS4J());
+                case INTERSECTS:
+                    return new SpatialArgs(SpatialOperation.Intersects, shapeBuilder.buildS4J());
+                case WITHIN:
+                    return new SpatialArgs(SpatialOperation.IsWithin, shapeBuilder.buildS4J());
+                case CONTAINS:
+                    return new SpatialArgs(SpatialOperation.Contains, shapeBuilder.buildS4J());
+                default:
+                    throw new IllegalArgumentException("invalid relation [" + relation + "]");
+            }
         }
 
         @Override

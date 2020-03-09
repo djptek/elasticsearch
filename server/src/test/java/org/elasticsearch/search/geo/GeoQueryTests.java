@@ -139,8 +139,8 @@ public abstract class GeoQueryTests extends ESSingleNodeTestCase {
         } catch (
             Exception e) {
             assertThat(e.getCause().getMessage(),
-                containsString("failed to create query: "
-                    + GeoShapeType.CIRCLE + " geometry is not supported"));
+                containsString("Field [" + defaultGeoFieldName
+                    + "] found and unknown shape Circle"));
         }
     }
 
