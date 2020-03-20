@@ -23,11 +23,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.lucene.util.CollectionUtil;
 import org.elasticsearch.Version;
+import org.elasticsearch.action.ActionListener;
 import org.elasticsearch.action.admin.indices.alias.Alias;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.action.support.master.MasterNodeRequest;
 import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.ClusterStateUpdateTask;
 import org.elasticsearch.cluster.service.ClusterService;
+import org.elasticsearch.common.Nullable;
 import org.elasticsearch.common.Priority;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.UUIDs;
@@ -55,7 +58,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import static org.elasticsearch.indices.cluster.IndicesClusterStateService.AllocatedIndices.IndexRemovalReason.NO_LONGER_ASSIGNED;
 
@@ -131,6 +136,104 @@ public class MetaDataIndexTemplateService {
         });
     }
 
+    /**
+     * Add the given component template to the cluster state. If {@code create} is true, an
+     * exception will be thrown if the component template already exists
+     */
+    public void putComponentTemplate(final String cause, final boolean create, final String name, final TimeValue masterTimeout,
+                                     final ComponentTemplate template, final ActionListener<AcknowledgedResponse> listener) {
+        clusterService.submitStateUpdateTask("create-component-template [" + name + "], cause [" + cause + "]",
+            new ClusterStateUpdateTask(Priority.URGENT) {
+
+                @Override
+                public TimeValue timeout() {
+                    return masterTimeout;
+                }
+
+                @Override
+                public void onFailure(String source, Exception e) {
+                    listener.onFailure(e);
+                }
+
+                @Override
+                public ClusterState execute(ClusterState currentState) {
+                    return addComponentTemplate(currentState, create, name, template);
+                }
+
+                @Override
+                public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
+                    listener.onResponse(new AcknowledgedResponse(true));
+                }
+            });
+    }
+
+    // Package visible for testing
+    static ClusterState addComponentTemplate(final ClusterState currentState, final boolean create,
+                                             final String name, final ComponentTemplate template) {
+        if (create && currentState.metaData().componentTemplates().containsKey(name)) {
+            throw new IllegalArgumentException("component template [" + name + "] already exists");
+        }
+
+        // TODO: validation of component template
+        // validateAndAddTemplate(request, templateBuilder, indicesService, xContentRegistry);
+
+        logger.info("adding component template [{}]", name);
+        return ClusterState.builder(currentState)
+            .metaData(MetaData.builder(currentState.metaData()).put(name, template))
+            .build();
+    }
+
+    /**
+     * Remove the given component template from the cluster state. The component template name
+     * supports simple regex wildcards for removing multiple component templates at a time.
+     */
+    public void removeComponentTemplate(final String name, final TimeValue masterTimeout,
+                                        final ActionListener<AcknowledgedResponse> listener) {
+        clusterService.submitStateUpdateTask("remove-component-template [" + name + "]",
+            new ClusterStateUpdateTask(Priority.URGENT) {
+
+                @Override
+                public TimeValue timeout() {
+                    return masterTimeout;
+                }
+
+                @Override
+                public void onFailure(String source, Exception e) {
+                    listener.onFailure(e);
+                }
+
+                @Override
+                public ClusterState execute(ClusterState currentState) {
+                    Set<String> templateNames = new HashSet<>();
+                    for (String templateName : currentState.metaData().componentTemplates().keySet()) {
+                        if (Regex.simpleMatch(name, templateName)) {
+                            templateNames.add(templateName);
+                        }
+                    }
+                    if (templateNames.isEmpty()) {
+                        // if its a match all pattern, and no templates are found (we have none), don't
+                        // fail with index missing...
+                        if (Regex.isMatchAllPattern(name)) {
+                            return currentState;
+                        }
+                        // TODO: perhaps introduce a ComponentTemplateMissingException?
+                        throw new IndexTemplateMissingException(name);
+                    }
+                    MetaData.Builder metaData = MetaData.builder(currentState.metaData());
+                    for (String templateName : templateNames) {
+                        logger.info("removing component template [{}]", templateName);
+                        metaData.removeComponentTemplate(templateName);
+                    }
+                    return ClusterState.builder(currentState).metaData(metaData).build();
+                }
+
+                @Override
+                public void clusterStateProcessed(String source, ClusterState oldState, ClusterState newState) {
+                    listener.onResponse(new AcknowledgedResponse(true));
+                }
+            });
+    }
+
     public void putTemplate(final PutRequest request, final PutListener listener) {
         Settings.Builder updatedSettingsBuilder = Settings.builder();
         updatedSettingsBuilder.put(request.settings).normalizePrefix(IndexMetaData.INDEX_SETTING_PREFIX);
@@ -196,19 +299,61 @@ public class MetaDataIndexTemplateService {
     }
 
     /**
-     * Finds index templates whose index pattern matched with the given index name.
-     * The result is sorted by {@link IndexTemplateMetaData#order} descending.
+     * Finds index templates whose index pattern matched with the given index name. In the case of
+     * hidden indices, a template with a match all pattern or global template will not be returned.
+     *
+     * @param metaData The {@link MetaData} containing all of the {@link IndexTemplateMetaData} values
+     * @param indexName The name of the index that templates are being found for
+     * @param isHidden Whether or not the index is known to be hidden. May be {@code null} if the index
+     *                 being hidden has not been explicitly requested. When {@code null} if the result
+     *                 of template application results in a hidden index, then global templates will
+     *                 not be returned
+     * @return a list of templates sorted by {@link IndexTemplateMetaData#order()} descending.
+     *
      */
-    public static List<IndexTemplateMetaData> findTemplates(MetaData metaData, String indexName) {
+    public static List<IndexTemplateMetaData> findTemplates(MetaData metaData, String indexName, @Nullable Boolean isHidden) {
+        final Predicate<String> patternMatchPredicate = pattern -> Regex.simpleMatch(pattern, indexName);
         final List<IndexTemplateMetaData> matchedTemplates = new ArrayList<>();
         for (ObjectCursor<IndexTemplateMetaData> cursor : metaData.templates().values()) {
             final IndexTemplateMetaData template = cursor.value;
-            final boolean matched = template.patterns().stream().anyMatch(pattern -> Regex.simpleMatch(pattern, indexName));
-            if (matched) {
-                matchedTemplates.add(template);
+            if (isHidden == null || isHidden == Boolean.FALSE) {
+                final boolean matched = template.patterns().stream().anyMatch(patternMatchPredicate);
+                if (matched) {
+                    matchedTemplates.add(template);
+                }
+            } else {
+                assert isHidden == Boolean.TRUE;
+                final boolean isNotMatchAllTemplate = template.patterns().stream().noneMatch(Regex::isMatchAllPattern);
+                if (isNotMatchAllTemplate) {
+                    if (template.patterns().stream().anyMatch(patternMatchPredicate)) {
+                        matchedTemplates.add(template);
+                    }
+                }
             }
         }
         CollectionUtil.timSort(matchedTemplates, Comparator.comparingInt(IndexTemplateMetaData::order).reversed());
+
+        // this is complex but if the index is not hidden in the create request but is hidden as the result of template application,
+        // then we need to exclude global templates
+        if (isHidden == null) {
+            final Optional<IndexTemplateMetaData> templateWithHiddenSetting = matchedTemplates.stream()
+                .filter(template -> IndexMetaData.INDEX_HIDDEN_SETTING.exists(template.settings())).findFirst();
+            if (templateWithHiddenSetting.isPresent()) {
+                final boolean templatedIsHidden = IndexMetaData.INDEX_HIDDEN_SETTING.get(templateWithHiddenSetting.get().settings());
+                if (templatedIsHidden) {
+                    // remove the global templates
+                    matchedTemplates.removeIf(current -> current.patterns().stream().anyMatch(Regex::isMatchAllPattern));
+                }
+                // validate that hidden didn't change
+                final Optional<IndexTemplateMetaData> templateWithHiddenSettingPostRemoval = matchedTemplates.stream()
+                    .filter(template -> IndexMetaData.INDEX_HIDDEN_SETTING.exists(template.settings())).findFirst();
+                if (templateWithHiddenSettingPostRemoval.isPresent() == false ||
+                    templateWithHiddenSetting.get() != templateWithHiddenSettingPostRemoval.get()) {
+                    throw new IllegalStateException("A global index template [" + templateWithHiddenSetting.get().name() +
+                        "] defined the index hidden setting, which is not allowed");
+                }
+            }
+        }
         return matchedTemplates;
     }
 
@@ -232,7 +377,7 @@ public class MetaDataIndexTemplateService {
                 .build();
 
             final IndexMetaData tmpIndexMetadata = IndexMetaData.builder(temporaryIndexName).settings(dummySettings).build();
-            IndexService dummyIndexService = indicesService.createIndex(tmpIndexMetadata, Collections.emptyList());
+            IndexService dummyIndexService = indicesService.createIndex(tmpIndexMetadata, Collections.emptyList(), false);
             createdIndex = dummyIndexService.index();
 
             templateBuilder.order(request.order);
@@ -304,6 +449,13 @@ public class MetaDataIndexTemplateService {
         }
         List<String> indexSettingsValidation = metaDataCreateIndexService.getIndexSettingsValidationErrors(request.settings, true);
         validationErrors.addAll(indexSettingsValidation);
+
+        if (request.indexPatterns.stream().anyMatch(Regex::isMatchAllPattern)) {
+            if (IndexMetaData.INDEX_HIDDEN_SETTING.exists(request.settings)) {
+                validationErrors.add("global templates may not specify the setting " + IndexMetaData.INDEX_HIDDEN_SETTING.getKey());
+            }
+        }
+
         if (!validationErrors.isEmpty()) {
             ValidationException validationException = new ValidationException();
             validationException.addValidationErrors(validationErrors);

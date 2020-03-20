@@ -31,7 +31,7 @@ current master node fails.
 
 The {ccr} feature enables you to replicate indices in remote clusters to your
 local cluster. For more information, see 
-{stack-ov}/xpack-ccr.html[{ccr-cap}].  
+{ref}/xpack-ccr.html[{ccr-cap}].  
   
 [[glossary-ccs]] {ccs} (CCS)::
 
@@ -80,6 +80,30 @@ In most cases, the goal of filtering is to reduce the number of documents that h
 Follower indices are the target indices for <<glossary-ccr,{ccr}>>. They exist
 in your local cluster and replicate <<glossary-leader-index,leader indices>>.
 
+[[glossary-force-merge]] force merge ::  
+// tag::force-merge-def[]
+// tag::force-merge-def-short[]
+Manually trigger a merge to reduce the number of segments in each shard of an index 
+and free up the space used by deleted documents.
+// end::force-merge-def-short[]
+You should not force merge indices that are actively being written to.
+Merging is normally performed automatically, but you can use force merge after 
+<<glossary-rollover, rollover>> to reduce the shards in the old index to a single segment. 
+See the {ref}/indices-forcemerge.html[force merge API].
+// end::force-merge-def[]
+
+[[glossary-freeze]] freeze ::  
+// tag::freeze-def[]
+// tag::freeze-def-short[]
+Make an index read-only and minimize its memory footprint. 
+// end::freeze-def-short[]
+Frozen indices can be searched without incurring the overhead of of re-opening a closed index,
+but searches are throttled and might be slower. 
+You can freeze indices to reduce the overhead of keeping older indices searchable 
+before you are ready to archive or delete them.
+See the {ref}/freeze-index-api.html[freeze API].
+// end::freeze-def[]
+
 [[glossary-id]] id ::
 
 The ID of a <<glossary-document,document>> identifies a document. The
@@ -95,6 +119,36 @@ which contains the <<glossary-field,fields>> in the index.
 An index is a logical namespace which maps to one or more
 <<glossary-primary-shard,primary shards>> and can have zero or more
 <<glossary-replica-shard,replica shards>>.
+
+[[glossary-index-alias]] index alias ::
++
+--
+// tag::index-alias-def[]
+// tag::index-alias-desc[]
+An index alias is a secondary name
+used to refer to one or more existing indices.
+
+Most {es} APIs accept an index alias
+in place of an index name.
+// end::index-alias-desc[]
+
+See {ref}/indices-add-alias.html[Add index alias].
+// end::index-alias-def[]
+
+See <<indices-add-alias>>.
+--
+
+[[glossary-index-template]] index template ::
++
+--
+// tag::index-template-def[]
+// tag::index-template-def-short[]
+Defines settings and mappings to apply to new indexes that match a simple naming pattern, such as _logs-*_. 
+// end::index-template-def-short[]
+An index template can also attach a lifecycle policy to the new index.
+Index templates are used to automatically configure indices created during <<glossary-rollover, rollover>>. 
+// end::index-template-def[]
+--
 
 [[glossary-leader-index]] leader index ::  
   
@@ -147,14 +201,31 @@ There are two types of queries: _scoring queries_ and _filters_. For more
 information about query types, see <<query-filter-context>>.
 
 [[glossary-recovery]] recovery ::
-The process of syncing a shard copy from a source shard. Upon completion, the recovery process makes the shard copy available for queries.
 +
-Recovery automatically occurs anytime a shard moves to a different node in the same cluster, including:
+--
+Shard recovery is the process
+of syncing a <<glossary-replica-shard,replica shard>>
+from a <<glossary-primary-shard,primary shard>>.
+Upon completion,
+the replica shard is available for search.
 
-* Node startup
-* Node failure
-* Index shard replication
-* Snapshot restoration
+// tag::recovery-triggers[]
+Recovery automatically occurs
+during the following processes:
+
+* Node startup or failure.
+  This type of recovery is called a *local store recovery*.
+* <<glossary-replica-shard,Primary shard replication>>.
+* Relocation of a shard to a different node in the same cluster.
+* {ref}/snapshots-restore-snapshot.html[Snapshot restoration].
+// end::recovery-triggers[]
+--
+
+[[glossary-reindex]] reindex ::
+
+// tag::reindex-def[]
+To cycle through some or all documents in one or more indices, re-writing them into the same or new index in a local or remote cluster. This is most commonly done to update mappings, or to upgrade Elasticsearch between two incompatible index versions.
+// end::reindex-def[]
 
 [[glossary-replica-shard]] replica shard ::
 
@@ -171,6 +242,19 @@ By default, each primary shard has one replica, but the number of
 replicas can be changed dynamically on an existing index. A replica
 shard will never be started on the same node as its primary shard.
 
+[[glossary-rollover]] rollover ::
++
+--
+// tag::rollover-def[]
+// tag::rollover-def-short[]
+Redirect an alias to begin writing to a new index when the existing index reaches a certain age, number of docs, or size. 
+// end::rollover-def-short[]
+The new index is automatically configured according to any matching <<glossary-index-template, index templates>>. 
+For example, if you're indexing log data, you might use rollover to create daily or weekly indices. 
+See the {ref}/indices-rollover-index.html[rollover index API].
+// end::rollover-def[]
+--
+
 [[glossary-routing]] routing ::
 
 When you index a document, it is stored on a single
@@ -185,7 +269,9 @@ time, or a <<mapping-routing-field,routing
 field>> in the <<glossary-mapping,mapping>>.
 
 [[glossary-shard]] shard ::
-
++
+--
+// tag::shard-def[]
 A shard is a single Lucene instance. It is a low-level “worker” unit
 which is managed automatically by Elasticsearch. An index is a logical
 namespace which points to <<glossary-primary-shard,primary>> and
@@ -199,6 +285,18 @@ Elasticsearch distributes shards amongst all <<glossary-node,nodes>> in the
 <<glossary-cluster,cluster>>, and can move shards automatically from one
 node to another in the case of node failure, or the addition of new
 nodes.
+// end::shard-def[]
+--
+
+[[glossary-shrink]] shrink ::
+// tag::shrink-def[]
+// tag::shrink-def-short[]
+Reduce the number of primary shards in an index.
+// end::shrink-def-short[]
+You can shrink an index to reduce its overhead when the request volume drops.
+For example, you might opt to shrink an index once it is no longer the write index. 
+See the {ref}/indices-shrink-index.html[shrink index API].
+// end::shrink-def[]
 
 [[glossary-source_field]] source field ::
 

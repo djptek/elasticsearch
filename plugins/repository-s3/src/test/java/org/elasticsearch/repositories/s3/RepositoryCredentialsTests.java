@@ -26,6 +26,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.cluster.metadata.RepositoryMetaData;
+import org.elasticsearch.cluster.service.ClusterService;
 import org.elasticsearch.common.SuppressForbidden;
 import org.elasticsearch.common.settings.MockSecureSettings;
 import org.elasticsearch.common.settings.Settings;
@@ -35,13 +36,11 @@ import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.PluginsService;
 import org.elasticsearch.repositories.RepositoriesService;
 import org.elasticsearch.rest.AbstractRestChannel;
-import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.RestResponse;
 import org.elasticsearch.rest.action.admin.cluster.RestGetRepositoriesAction;
 import org.elasticsearch.test.ESSingleNodeTestCase;
 import org.elasticsearch.test.rest.FakeRestRequest;
-import org.elasticsearch.threadpool.ThreadPool;
 
 import java.security.AccessController;
 import java.security.PrivilegedAction;
@@ -58,7 +57,6 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
-import static org.mockito.Mockito.mock;
 
 @SuppressForbidden(reason = "test requires to set a System property to allow insecure settings when running in IDE")
 public class RepositoryCredentialsTests extends ESSingleNodeTestCase {
@@ -224,8 +222,7 @@ public class RepositoryCredentialsTests extends ESSingleNodeTestCase {
 
         final RestRequest fakeRestRequest = new FakeRestRequest();
         fakeRestRequest.params().put("repository", repositoryName);
-        final RestGetRepositoriesAction action =
-            new RestGetRepositoriesAction(mock(RestController.class), getInstanceFromNode(SettingsFilter.class));
+        final RestGetRepositoriesAction action = new RestGetRepositoriesAction(getInstanceFromNode(SettingsFilter.class));
 
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<AssertionError> error = new AtomicReference<>();
@@ -271,8 +268,8 @@ public class RepositoryCredentialsTests extends ESSingleNodeTestCase {
 
         @Override
         protected S3Repository createRepository(RepositoryMetaData metadata,
-                                                NamedXContentRegistry registry, ThreadPool threadPool) {
-            return new S3Repository(metadata, registry, service, threadPool) {
+                                                NamedXContentRegistry registry, ClusterService clusterService) {
+            return new S3Repository(metadata, registry, service, clusterService) {
                 @Override
                 protected void assertSnapshotOrGenericThread() {
                     // eliminate thread name check as we create repo manually on test/main threads

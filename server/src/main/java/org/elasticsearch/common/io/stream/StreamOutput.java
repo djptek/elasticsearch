@@ -146,6 +146,10 @@ public abstract class StreamOutput extends OutputStream {
         this.features = Collections.unmodifiableSet(new HashSet<>(features));
     }
 
+    public Set<String> getFeatures() {
+        return this.features;
+    }
+
     public long position() throws IOException {
         throw new UnsupportedOperationException();
     }
@@ -295,6 +299,15 @@ public abstract class StreamOutput extends OutputStream {
             throw new IllegalStateException("Negative longs unsupported, use writeLong or writeZLong for negative numbers [" + i + "]");
         }
         writeVLongNoCheck(i);
+    }
+
+    public void writeOptionalVLong(@Nullable  Long l) throws IOException {
+        if (l == null) {
+            writeBoolean(false);
+        } else {
+            writeBoolean(true);
+            writeVLong(l);
+        }
     }
 
     /**
@@ -1119,6 +1132,22 @@ public abstract class StreamOutput extends OutputStream {
      */
     public void writeStringCollection(final Collection<String> collection) throws IOException {
         writeCollection(collection, StreamOutput::writeString);
+    }
+
+    /**
+     * Writes an optional collection of a strings. The corresponding collection can be read from a stream input using
+     * {@link StreamInput#readList(Writeable.Reader)}.
+     *
+     * @param collection the collection of strings
+     * @throws IOException if an I/O exception occurs writing the collection
+     */
+    public void writeOptionalStringCollection(final Collection<String> collection) throws IOException {
+        if (collection != null) {
+            writeBoolean(true);
+            writeCollection(collection, StreamOutput::writeString);
+        } else {
+            writeBoolean(false);
+        }
     }
 
     /**

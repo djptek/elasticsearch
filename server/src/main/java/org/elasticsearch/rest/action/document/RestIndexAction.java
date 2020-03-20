@@ -20,21 +20,26 @@
 package org.elasticsearch.rest.action.document;
 
 import org.apache.logging.log4j.LogManager;
+import org.elasticsearch.Version;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.support.ActiveShardCount;
 import org.elasticsearch.client.node.NodeClient;
 import org.elasticsearch.common.logging.DeprecationLogger;
+import org.elasticsearch.cluster.node.DiscoveryNodes;
 import org.elasticsearch.index.VersionType;
 import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.rest.BaseRestHandler;
-import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestRequest;
 import org.elasticsearch.rest.action.RestActions;
 import org.elasticsearch.rest.action.RestStatusToXContentListener;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
+import static java.util.Arrays.asList;
+import static java.util.Collections.unmodifiableList;
 import static org.elasticsearch.rest.RestRequest.Method.POST;
 import static org.elasticsearch.rest.RestRequest.Method.PUT;
 
@@ -45,21 +50,13 @@ public class RestIndexAction extends BaseRestHandler {
         "index requests is deprecated, use the typeless endpoints instead (/{index}/_doc/{id}, /{index}/_doc, " +
         "or /{index}/_create/{id}).";
 
-    public RestIndexAction(RestController controller) {
-        controller.registerHandler(POST, "/{index}/_doc", this); // auto id creation
-        controller.registerHandler(PUT, "/{index}/_doc/{id}", this);
-        controller.registerHandler(POST, "/{index}/_doc/{id}", this);
-
-        CreateHandler createHandler = new CreateHandler();
-        controller.registerHandler(PUT, "/{index}/_create/{id}", createHandler);
-        controller.registerHandler(POST, "/{index}/_create/{id}/", createHandler);
-
-        // Deprecated typed endpoints.
-        controller.registerHandler(POST, "/{index}/{type}", this); // auto id creation
-        controller.registerHandler(PUT, "/{index}/{type}/{id}", this);
-        controller.registerHandler(POST, "/{index}/{type}/{id}", this);
-        controller.registerHandler(PUT, "/{index}/{type}/{id}/_create", createHandler);
-        controller.registerHandler(POST, "/{index}/{type}/{id}/_create", createHandler);
+    @Override
+    public List<Route> routes() {
+        return unmodifiableList(asList(
+            new Route(POST, "/{index}/_doc/{id}"),
+            new Route(PUT, "/{index}/_doc/{id}"),
+            new Route(POST, "/{index}/{type}/{id}"),
+            new Route(PUT, "/{index}/{type}/{id}")));
     }
 
     @Override
@@ -67,8 +64,42 @@ public class RestIndexAction extends BaseRestHandler {
         return "document_index_action";
     }
 
-    final class CreateHandler extends BaseRestHandler {
-        protected CreateHandler() {
+    public static final class CreateHandler extends RestIndexAction {
+
+        @Override
+        public String getName() {
+            return "document_create_action";
+        }
+
+        @Override
+        public List<Route> routes() {
+            return unmodifiableList(asList(
+                new Route(POST, "/{index}/_create/{id}"),
+                new Route(PUT, "/{index}/_create/{id}"),
+                new Route(POST, "/{index}/{type}/{id}/_create"),
+                new Route(PUT, "/{index}/{type}/{id}/_create")));
+        }
+
+        @Override
+        public RestChannelConsumer prepareRequest(RestRequest request, final NodeClient client) throws IOException {
+            validateOpType(request.params().get("op_type"));
+            request.params().put("op_type", "create");
+            return super.prepareRequest(request, client);
+        }
+
+        void validateOpType(String opType) {
+            if (null != opType && false == "create".equals(opType.toLowerCase(Locale.ROOT))) {
+                throw new IllegalArgumentException("opType must be 'create', found: [" + opType + "]");
+            }
+        }
+    }
+
+    public static final class AutoIdHandler extends RestIndexAction {
+
+        private final Supplier<DiscoveryNodes> nodesInCluster;
+
+        public AutoIdHandler(Supplier<DiscoveryNodes> nodesInCluster) {
+            this.nodesInCluster = nodesInCluster;
         }
 
         @Override
@@ -77,16 +108,20 @@ public class RestIndexAction extends BaseRestHandler {
         }
 
         @Override
-        public RestChannelConsumer prepareRequest(RestRequest request, final NodeClient client) throws IOException {
-            validateOpType(request.params().get("op_type"));
-            request.params().put("op_type", "create");
-            return RestIndexAction.this.prepareRequest(request, client);
+        public List<Route> routes() {
+            return unmodifiableList(asList(
+                new Route(POST, "/{index}/_doc"),
+                new Route(POST, "/{index}/{type}")));
         }
 
-        void validateOpType(String opType) {
-            if (null != opType && false == "create".equals(opType.toLowerCase(Locale.ROOT))) {
-                throw new IllegalArgumentException("opType must be 'create', found: [" + opType + "]");
+        @Override
+        public RestChannelConsumer prepareRequest(RestRequest request, final NodeClient client) throws IOException {
+            assert request.params().get("id") == null : "non-null id: " + request.params().get("id");
+            if (request.params().get("op_type") == null && nodesInCluster.get().getMinNodeVersion().onOrAfter(Version.V_7_5_0)) {
+                // default to op_type create
+                request.params().put("op_type", "create");
             }
+            return super.prepareRequest(request, client);
         }
     }
 

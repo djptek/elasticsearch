@@ -22,7 +22,6 @@ package org.elasticsearch.search.aggregations.bucket.adjacency;
 import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.io.stream.StreamOutput;
 import org.elasticsearch.common.xcontent.XContentBuilder;
-import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.InternalAggregations;
 import org.elasticsearch.search.aggregations.InternalMultiBucketAggregation;
@@ -84,7 +83,7 @@ public class InternalAdjacencyMatrix
         }
 
         @Override
-        public Aggregations getAggregations() {
+        public InternalAggregations getAggregations() {
             return aggregations;
         }
 
@@ -181,7 +180,7 @@ public class InternalAdjacencyMatrix
     }
 
     @Override
-    public InternalAggregation doReduce(List<InternalAggregation> aggregations, ReduceContext reduceContext) {
+    public InternalAggregation reduce(List<InternalAggregation> aggregations, ReduceContext reduceContext) {
         Map<String, List<InternalBucket>> bucketsMap = new HashMap<>();
         for (InternalAggregation aggregation : aggregations) {
             InternalAdjacencyMatrix filters = (InternalAdjacencyMatrix) aggregation;

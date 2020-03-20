@@ -40,7 +40,6 @@ import org.elasticsearch.common.xcontent.ToXContentFragment;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.node.Node;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -60,14 +59,14 @@ import java.util.stream.Collectors;
 
 import static java.util.Collections.unmodifiableMap;
 
-public class ThreadPool implements Scheduler, Closeable {
+public class ThreadPool implements Scheduler {
 
     private static final Logger logger = LogManager.getLogger(ThreadPool.class);
 
     public static class Names {
         public static final String SAME = "same";
         public static final String GENERIC = "generic";
-        public static final String LISTENER = "listener";
+        @Deprecated public static final String LISTENER = "listener";
         public static final String GET = "get";
         public static final String ANALYZE = "analyze";
         public static final String WRITE = "write";
@@ -182,7 +181,7 @@ public class ThreadPool implements Scheduler, Closeable {
         builders.put(Names.MANAGEMENT, new ScalingExecutorBuilder(Names.MANAGEMENT, 1, 5, TimeValue.timeValueMinutes(5)));
         // no queue as this means clients will need to handle rejections on listener queue even if the operation succeeded
         // the assumption here is that the listeners should be very lightweight on the listeners side
-        builders.put(Names.LISTENER, new FixedExecutorBuilder(settings, Names.LISTENER, halfProcMaxAt10, -1));
+        builders.put(Names.LISTENER, new FixedExecutorBuilder(settings, Names.LISTENER, halfProcMaxAt10, -1, true));
         builders.put(Names.FLUSH, new ScalingExecutorBuilder(Names.FLUSH, 1, halfProcMaxAt5, TimeValue.timeValueMinutes(5)));
         builders.put(Names.REFRESH, new ScalingExecutorBuilder(Names.REFRESH, 1, halfProcMaxAt10, TimeValue.timeValueMinutes(5)));
         builders.put(Names.WARMER, new ScalingExecutorBuilder(Names.WARMER, 1, halfProcMaxAt5, TimeValue.timeValueMinutes(5)));
@@ -754,15 +753,13 @@ public class ThreadPool implements Scheduler, Closeable {
     public static boolean terminate(ThreadPool pool, long timeout, TimeUnit timeUnit) {
         if (pool != null) {
             // Leverage try-with-resources to close the threadpool
-            try (ThreadPool c = pool) {
-                pool.shutdown();
-                if (awaitTermination(pool, timeout, timeUnit)) {
-                    return true;
-                }
-                // last resort
-                pool.shutdownNow();
-                return awaitTermination(pool, timeout, timeUnit);
+            pool.shutdown();
+            if (awaitTermination(pool, timeout, timeUnit)) {
+                return true;
             }
+            // last resort
+            pool.shutdownNow();
+            return awaitTermination(pool, timeout, timeUnit);
         }
         return false;
     }
@@ -779,11 +776,6 @@ public class ThreadPool implements Scheduler, Closeable {
             Thread.currentThread().interrupt();
         }
         return false;
-    }
-
-    @Override
-    public void close() {
-        threadContext.close();
     }
 
     public ThreadContext getThreadContext() {

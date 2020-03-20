@@ -3,11 +3,10 @@
 
 Returns the indices and shards that a search request would be executed against.
 
-[source,js]
+[source,console]
 --------------------------------------------------
 GET /twitter/_search_shards
 --------------------------------------------------
-// CONSOLE
 // TEST[s/^/PUT twitter\n{"settings":{"index.number_of_shards":5}}\n/]
 
 
@@ -36,6 +35,8 @@ include::{docdir}/rest-api/common-parms.asciidoc[tag=index]
 ==== {api-query-parms-title}
 
 include::{docdir}/rest-api/common-parms.asciidoc[tag=allow-no-indices]
++
+Defaults to `true`.
 
 include::{docdir}/rest-api/common-parms.asciidoc[tag=expand-wildcards]
 +
@@ -55,16 +56,15 @@ include::{docdir}/rest-api/common-parms.asciidoc[tag=routing]
 [[search-shards-api-example]]
 ==== {api-examples-title}
 
-[source,js]
+[source,console]
 --------------------------------------------------
 GET /twitter/_search_shards
 --------------------------------------------------
-// CONSOLE
 // TEST[s/^/PUT twitter\n{"settings":{"index.number_of_shards":5}}\n/]
 
 The API returns the following result:
 
-[source,js]
+[source,console-result]
 --------------------------------------------------
 {
   "nodes": ...,
@@ -140,16 +140,15 @@ The API returns the following result:
 
 Specifying the same request, this time with a routing value:
 
-[source,js]
+[source,console]
 --------------------------------------------------
 GET /twitter/_search_shards?routing=foo,bar
 --------------------------------------------------
-// CONSOLE
 // TEST[s/^/PUT twitter\n{"settings":{"index.number_of_shards":5}}\n/]
 
 The API returns the following result:
 
-[source,js]
+[source,console-result]
 --------------------------------------------------
 {
   "nodes": ...,
@@ -187,5 +186,5 @@ The API returns the following result:
 // TESTRESPONSE[s/0TvkCyF7TAmM1wHP4a42-A/$body.shards.1.0.allocation_id.id/]
 // TESTRESPONSE[s/fMju3hd1QHWmWrIgFnI4Ww/$body.shards.0.0.allocation_id.id/]
 
-The search will only be executed against two of the shards, because outing 
-values have been specified.
+Because of the specified routing values, 
+the search is only executed against two of the shards.

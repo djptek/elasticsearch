@@ -38,6 +38,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.TestEnvironment;
+import org.elasticsearch.index.shard.ShardId;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.tasks.Task;
 import org.elasticsearch.test.ClusterServiceUtils;
@@ -46,6 +47,7 @@ import org.elasticsearch.transport.Transport;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.watcher.ResourceWatcherService;
 import org.elasticsearch.xpack.core.XPackSettings;
+import org.elasticsearch.xpack.core.security.SecurityContext;
 import org.elasticsearch.xpack.core.security.action.saml.SamlLogoutRequest;
 import org.elasticsearch.xpack.core.security.action.saml.SamlLogoutResponse;
 import org.elasticsearch.xpack.core.security.authc.Authentication;
@@ -60,7 +62,7 @@ import org.elasticsearch.xpack.security.authc.saml.SamlNameId;
 import org.elasticsearch.xpack.security.authc.saml.SamlRealm;
 import org.elasticsearch.xpack.security.authc.saml.SamlRealmTests;
 import org.elasticsearch.xpack.security.authc.saml.SamlTestCase;
-import org.elasticsearch.xpack.security.authc.support.UserRoleMapper;
+import org.elasticsearch.xpack.core.security.authc.support.UserRoleMapper;
 import org.elasticsearch.xpack.security.support.SecurityIndexManager;
 import org.junit.After;
 import org.junit.Before;
@@ -170,7 +172,7 @@ public class TransportSamlLogoutActionTests extends SamlTestCase {
             ActionListener<IndexResponse> listener = (ActionListener<IndexResponse>) invocationOnMock.getArguments()[1];
             indexRequests.add(indexRequest);
             final IndexResponse response = new IndexResponse(
-                    indexRequest.shardId(), indexRequest.type(), indexRequest.id(), 1, 1, 1, true);
+                new ShardId("test", "test", 0), indexRequest.type(), indexRequest.id(), 1, 1, 1, true);
             listener.onResponse(response);
             return Void.TYPE;
         }).when(client).index(any(IndexRequest.class), any(ActionListener.class));
@@ -179,7 +181,7 @@ public class TransportSamlLogoutActionTests extends SamlTestCase {
             ActionListener<IndexResponse> listener = (ActionListener<IndexResponse>) invocationOnMock.getArguments()[2];
             indexRequests.add(indexRequest);
             final IndexResponse response = new IndexResponse(
-                    indexRequest.shardId(), indexRequest.type(), indexRequest.id(), 1, 1, 1, true);
+                new ShardId("test", "test", 0), indexRequest.type(), indexRequest.id(), 1, 1, 1, true);
             listener.onResponse(response);
             return Void.TYPE;
         }).when(client).execute(eq(IndexAction.INSTANCE), any(IndexRequest.class), any(ActionListener.class));
@@ -206,7 +208,9 @@ public class TransportSamlLogoutActionTests extends SamlTestCase {
         final XPackLicenseState licenseState = mock(XPackLicenseState.class);
         when(licenseState.isTokenServiceAllowed()).thenReturn(true);
         final ClusterService clusterService = ClusterServiceUtils.createClusterService(threadPool);
-        tokenService = new TokenService(settings, Clock.systemUTC(), client, licenseState, securityIndex, securityIndex, clusterService);
+        final SecurityContext securityContext = new SecurityContext(settings, threadContext);
+        tokenService = new TokenService(settings, Clock.systemUTC(), client, licenseState, securityContext, securityIndex, securityIndex,
+            clusterService);
 
         final TransportService transportService = new TransportService(Settings.EMPTY, mock(Transport.class), null,
                 TransportService.NOOP_TRANSPORT_INTERCEPTOR, x -> null, null, Collections.emptySet());

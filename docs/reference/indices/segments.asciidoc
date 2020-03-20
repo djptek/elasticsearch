@@ -21,8 +21,6 @@ GET /twitter/_segments
 
 `GET /_segments`
 
-`GET /_cat/segments/<index>`
-
 
 [[index-segments-api-path-params]]
 ==== {api-path-parms-title}
@@ -34,6 +32,8 @@ include::{docdir}/rest-api/common-parms.asciidoc[tag=index]
 ==== {api-query-parms-title}
 
 include::{docdir}/rest-api/common-parms.asciidoc[tag=allow-no-indices]
++
+Defaults to `true`.
 
 include::{docdir}/rest-api/common-parms.asciidoc[tag=expand-wildcards]
 +

@@ -5,6 +5,8 @@
  */
 package org.elasticsearch.xpack.ml.action;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.ElasticsearchException;
 import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.ResourceAlreadyExistsException;
@@ -77,6 +79,8 @@ import java.util.function.Predicate;
  The start datafeed api is a low through put api, so the fact that we redirect to elected master node shouldn't be an issue.
  */
 public class TransportStartDatafeedAction extends TransportMasterNodeAction<StartDatafeedAction.Request, AcknowledgedResponse> {
+
+    private static final Logger logger = LogManager.getLogger(TransportStartDatafeedAction.class);
 
     private final Client client;
     private final XPackLicenseState licenseState;
@@ -174,7 +178,7 @@ public class TransportStartDatafeedAction extends TransportMasterNodeAction<Star
 
                     @Override
                     public void onFailure(Exception e) {
-                        if (e instanceof ResourceAlreadyExistsException) {
+                        if (ExceptionsHelper.unwrapCause(e) instanceof ResourceAlreadyExistsException) {
                             logger.debug("datafeed already started", e);
                             e = new ElasticsearchStatusException("cannot start datafeed [" + params.getDatafeedId() +
                                     "] because it has already been started", RestStatus.CONFLICT);
@@ -238,6 +242,7 @@ public class TransportStartDatafeedAction extends TransportMasterNodeAction<Star
                         DatafeedConfig datafeedConfig = datafeedBuilder.build();
                         params.setDatafeedIndices(datafeedConfig.getIndices());
                         params.setJobId(datafeedConfig.getJobId());
+                        params.setIndicesOptions(datafeedConfig.getIndicesOptions());
                         datafeedConfigHolder.set(datafeedConfig);
                         jobConfigProvider.getJob(datafeedConfig.getJobId(), jobListener);
                     } catch (Exception e) {
@@ -337,7 +342,7 @@ public class TransportStartDatafeedAction extends TransportMasterNodeAction<Star
                 RemoteClusterLicenseChecker.buildErrorMessage(
                         "ml",
                         licenseCheck.remoteClusterLicenseInfo(),
-                        RemoteClusterLicenseChecker::isLicensePlatinumOrTrial));
+                        RemoteClusterLicenseChecker::isAllowedByLicense));
         return new ElasticsearchStatusException(message, RestStatus.BAD_REQUEST);
     }
 
@@ -363,22 +368,27 @@ public class TransportStartDatafeedAction extends TransportMasterNodeAction<Star
         private final DatafeedManager datafeedManager;
         private final IndexNameExpressionResolver resolver;
 
-        public StartDatafeedPersistentTasksExecutor(DatafeedManager datafeedManager) {
+        public StartDatafeedPersistentTasksExecutor(DatafeedManager datafeedManager, IndexNameExpressionResolver resolver) {
             super(MlTasks.DATAFEED_TASK_NAME, MachineLearning.UTILITY_THREAD_POOL_NAME);
             this.datafeedManager = datafeedManager;
-            this.resolver = new IndexNameExpressionResolver();
+            this.resolver = resolver;
         }
 
         @Override
         public PersistentTasksCustomMetaData.Assignment getAssignment(StartDatafeedAction.DatafeedParams params,
                                                                       ClusterState clusterState) {
             return new DatafeedNodeSelector(clusterState, resolver, params.getDatafeedId(), params.getJobId(),
-                    params.getDatafeedIndices()).selectNode();
+                    params.getDatafeedIndices(), params.getIndicesOptions()).selectNode();
         }
 
         @Override
         public void validate(StartDatafeedAction.DatafeedParams params, ClusterState clusterState) {
-            new DatafeedNodeSelector(clusterState, resolver, params.getDatafeedId(), params.getJobId(), params.getDatafeedIndices())
+            new DatafeedNodeSelector(clusterState,
+                resolver,
+                params.getDatafeedId(),
+                params.getJobId(),
+                params.getDatafeedIndices(),
+                params.getIndicesOptions())
                     .checkDatafeedTaskCanBeCreated();
         }
 

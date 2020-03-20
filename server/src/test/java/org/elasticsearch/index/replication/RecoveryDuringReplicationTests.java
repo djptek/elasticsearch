@@ -77,6 +77,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.either;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
@@ -195,6 +196,7 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
             // slip the extra document into the replica
             remainingReplica.applyIndexOperationOnReplica(
                     remainingReplica.getLocalCheckpoint() + 1,
+                    remainingReplica.getOperationPrimaryTerm(),
                     1,
                     randomNonNegativeLong(),
                     false,
@@ -212,7 +214,7 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
                         Versions.MATCH_ANY,
                         VersionType.INTERNAL,
                         new SourceToParse("index", "type", "primary", new BytesArray("{}"), XContentType.JSON),
-                        SequenceNumbers.UNASSIGNED_SEQ_NO, 0, randomNonNegativeLong(),
+                        SequenceNumbers.UNASSIGNED_SEQ_NO, 0, IndexRequest.UNSET_AUTO_GENERATED_TIMESTAMP,
                         false);
             }
             final IndexShard recoveredReplica =
@@ -377,7 +379,6 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
     }
 
     public void testResyncAfterPrimaryPromotion() throws Exception {
-        // TODO: check translog trimming functionality once rollback is implemented in Lucene (ES trimming is done)
         Map<String, String> mappings =
             Collections.singletonMap("type", "{ \"type\": { \"properties\": { \"f\": { \"type\": \"keyword\"} }}}");
         try (ReplicationGroup shards = new ReplicationGroup(buildIndexMetaData(2, mappings))) {
@@ -445,7 +446,7 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
                     assertThat(source.source.utf8ToString(), is("{ \"f\": \"normal\"}"));
                 }
             }
-            assertThat(translogOperations, is(initialDocs + extraDocs));
+            assertThat(translogOperations, either(equalTo(initialDocs + extraDocs)).or(equalTo(task.getResyncedOperations())));
         }
     }
 
@@ -619,7 +620,7 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
             phaseTwoStartLatch.countDown();
 
             // wait for the translog phase to complete and the recovery to block global checkpoint advancement
-            awaitBusy(() -> shards.getPrimary().pendingInSync());
+            assertBusy(() -> assertTrue(shards.getPrimary().pendingInSync()));
             {
                 shards.index(new IndexRequest(index.getName(), "type", "last").source("{}", XContentType.JSON));
                 final long expectedDocs = docs + 3L;
@@ -802,6 +803,11 @@ public class RecoveryDuringReplicationTests extends ESIndexLevelReplicationTestC
             shards.assertAllEqual(initDocs + inFlightOpsOnNewPrimary + moreDocsAfterRollback);
             done.set(true);
             thread.join();
+            shards.syncGlobalCheckpoint();
+            for (IndexShard shard : shards) {
+                shard.flush(new FlushRequest().force(true).waitIfOngoing(true));
+                assertThat(shard.translogStats().getUncommittedOperations(), equalTo(0));
+            }
         }
     }
 

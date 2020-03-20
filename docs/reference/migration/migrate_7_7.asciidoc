@@ -1,0 +1,85 @@
+[[breaking-changes-7.7]]
+== Breaking changes in 7.7
+++++
+<titleabbrev>7.7</titleabbrev>
+++++
+
+This section discusses the changes that you need to be aware of when migrating
+your application to Elasticsearch 7.7.
+
+See also <<release-highlights>> and <<es-release-notes>>.
+
+coming[7.7.0]
+
+//NOTE: The notable-breaking-changes tagged regions are re-used in the
+//Installation and Upgrade Guide
+
+//tag::notable-breaking-changes[]
+
+//end::notable-breaking-changes[]
+
+[discrete]
+[[breaking_77_logging_changes]]
+=== Logging changes
+
+[discrete]
+==== Loggers under `org.elasticsearch.action` now log at `INFO` level by default
+
+The default log level for most loggers is `INFO`, but in earlier versions
+loggers in the `org.elasticsearch.action.*` hierarchy emitted log messages at
+`DEBUG` level by default. This sometimes resulted in a good deal of unnecessary
+log noise. From 7.7 onwards the default log level for logger in this hierarchy
+is now `INFO`, in line with most other loggers. If needed, you can recover the
+pre-7.7 default behaviour by adjusting your <<logging>>.
+
+[discrete]
+[[breaking_77_settings_changes]]
+=== Settings changes
+
+[discrete]
+[[deprecate-missing-realm-order]]
+==== Authentication realm `order` will be a required config in version 8.0.0.
+
+The `order` config will be required in version 8.0.0 for authentication realm
+configuration of any type. If the `order` config is missing for a realm, the node
+will fail to start.
+
+[discrete]
+[[deprecate-duplicated-realm-orders]]
+==== Authentication realm `order` uniqueness will be enforced in version 8.0.0.
+
+The `order` config of authentication realms must be unique in version 8.0.0.
+If you configure more than one realm of any type with the same order, the node will fail to start.
+
+[discrete]
+[[breaking_77_search_changes]]
+=== Search changes
+
+[discrete]
+==== Consistent rounding of range queries on `date_range` fields
+`range` queries on `date_range` field currently can have slightly differently
+boundaries than their equivalent query on a pure `date` field. This can e.g.
+happen when using date math or dates that don't specify up to the last
+millisecond. While queries on `date` field round up to the latest millisecond
+for `gt` and `lte` boundaries, the same queries on `date_range` fields didn't
+do this. The behavior is now the same for both field types like documented in
+<<range-query-date-math-rounding>>.
+
+[float]
+[[deprecate-listener-thread-pool]]
+==== `thread_pool.listener.size` and `thread_pool.listener.queue_size` have been deprecated
+
+The listener thread pool is no longer used internally by Elasticsearch.
+Therefore, these settings have been deprecated. You can safely remove these
+settings from the configuration of your nodes.
+
+[discrete]
+[[breaking_77_highlighters_changes]]
+=== Highlighters changes
+
+[discrete]
+==== Ignored keyword values are no longer highlighted
+If a keyword value was ignored during indexing because of its length
+(`ignore_above` parameter was applied), {es} doesn't attempt to
+highlight it anymore, which means no highlights are produced for
+ignored values.

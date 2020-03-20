@@ -32,12 +32,13 @@ import org.elasticsearch.watcher.ResourceWatcherService;
 import org.elasticsearch.xpack.core.XPackField;
 import org.elasticsearch.xpack.core.XPackPlugin;
 import org.elasticsearch.xpack.core.XPackSettings;
+import org.elasticsearch.xpack.ql.index.IndexResolver;
 import org.elasticsearch.xpack.sql.SqlFeatureSet;
 import org.elasticsearch.xpack.sql.action.SqlClearCursorAction;
 import org.elasticsearch.xpack.sql.action.SqlQueryAction;
 import org.elasticsearch.xpack.sql.action.SqlTranslateAction;
-import org.elasticsearch.xpack.sql.analysis.index.IndexResolver;
 import org.elasticsearch.xpack.sql.execution.PlanExecutor;
+import org.elasticsearch.xpack.sql.type.SqlDataTypeRegistry;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -87,7 +88,8 @@ public class SqlPlugin extends Plugin implements ActionPlugin {
     public Collection<Object> createComponents(Client client, ClusterService clusterService, ThreadPool threadPool,
                                                ResourceWatcherService resourceWatcherService, ScriptService scriptService,
                                                NamedXContentRegistry xContentRegistry, Environment environment,
-                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry) {
+                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry,
+                                               IndexNameExpressionResolver expressionResolver) {
 
         return createComponents(client, clusterService.getClusterName().value(), namedWriteableRegistry);
     }
@@ -99,7 +101,7 @@ public class SqlPlugin extends Plugin implements ActionPlugin {
         if (false == enabled) {
             return emptyList();
         }
-        IndexResolver indexResolver = new IndexResolver(client, clusterName);
+        IndexResolver indexResolver = new IndexResolver(client, clusterName, SqlDataTypeRegistry.INSTANCE);
         return Arrays.asList(sqlLicenseChecker, indexResolver, new PlanExecutor(client, indexResolver, namedWriteableRegistry));
     }
 
@@ -120,10 +122,10 @@ public class SqlPlugin extends Plugin implements ActionPlugin {
             return emptyList();
         }
 
-        return Arrays.asList(new RestSqlQueryAction(restController),
-                new RestSqlTranslateAction(restController),
-                new RestSqlClearCursorAction(restController),
-                new RestSqlStatsAction(restController));
+        return Arrays.asList(new RestSqlQueryAction(),
+                new RestSqlTranslateAction(),
+                new RestSqlClearCursorAction(),
+                new RestSqlStatsAction());
     }
 
     @Override

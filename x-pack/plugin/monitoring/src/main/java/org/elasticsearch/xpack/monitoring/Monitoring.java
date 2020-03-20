@@ -26,6 +26,7 @@ import org.elasticsearch.license.LicenseService;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.plugins.ActionPlugin;
 import org.elasticsearch.plugins.Plugin;
+import org.elasticsearch.plugins.ReloadablePlugin;
 import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestHandler;
 import org.elasticsearch.script.ScriptService;
@@ -41,6 +42,7 @@ import org.elasticsearch.xpack.monitoring.cleaner.CleanerService;
 import org.elasticsearch.xpack.monitoring.collector.Collector;
 import org.elasticsearch.xpack.monitoring.collector.ccr.StatsCollector;
 import org.elasticsearch.xpack.monitoring.collector.cluster.ClusterStatsCollector;
+import org.elasticsearch.xpack.monitoring.collector.enrich.EnrichStatsCollector;
 import org.elasticsearch.xpack.monitoring.collector.indices.IndexRecoveryCollector;
 import org.elasticsearch.xpack.monitoring.collector.indices.IndexStatsCollector;
 import org.elasticsearch.xpack.monitoring.collector.ml.JobStatsCollector;
@@ -72,7 +74,7 @@ import static org.elasticsearch.common.settings.Setting.boolSetting;
  * - node clients: all modules are bound
  * - transport clients: only action/transport actions are bound
  */
-public class Monitoring extends Plugin implements ActionPlugin {
+public class Monitoring extends Plugin implements ActionPlugin, ReloadablePlugin {
 
     /**
      * The ability to automatically cleanup ".watcher_history*" indices while also cleaning up Monitoring indices.
@@ -84,6 +86,8 @@ public class Monitoring extends Plugin implements ActionPlugin {
     protected final Settings settings;
     private final boolean enabled;
     private final boolean transportClientMode;
+
+    private Exporters exporters;
 
     public Monitoring(Settings settings) {
         this.settings = settings;
@@ -121,7 +125,8 @@ public class Monitoring extends Plugin implements ActionPlugin {
     public Collection<Object> createComponents(Client client, ClusterService clusterService, ThreadPool threadPool,
                                                ResourceWatcherService resourceWatcherService, ScriptService scriptService,
                                                NamedXContentRegistry xContentRegistry, Environment environment,
-                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry) {
+                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry,
+                                               IndexNameExpressionResolver expressionResolver) {
         if (enabled == false) {
             return Collections.emptyList();
         }
@@ -133,17 +138,19 @@ public class Monitoring extends Plugin implements ActionPlugin {
         Map<String, Exporter.Factory> exporterFactories = new HashMap<>();
         exporterFactories.put(HttpExporter.TYPE, config -> new HttpExporter(config, dynamicSSLService, threadPool.getThreadContext()));
         exporterFactories.put(LocalExporter.TYPE, config -> new LocalExporter(config, client, cleanerService));
-        final Exporters exporters = new Exporters(settings, exporterFactories, clusterService, getLicenseState(),
-            threadPool.getThreadContext());
+        exporters = new Exporters(settings, exporterFactories, clusterService, getLicenseState(), threadPool.getThreadContext(),
+            dynamicSSLService);
 
         Set<Collector> collectors = new HashSet<>();
         collectors.add(new IndexStatsCollector(clusterService, getLicenseState(), client));
-        collectors.add(new ClusterStatsCollector(settings, clusterService, getLicenseState(), client, getLicenseService()));
+        collectors.add(
+            new ClusterStatsCollector(settings, clusterService, getLicenseState(), client, getLicenseService(), expressionResolver));
         collectors.add(new ShardsCollector(clusterService, getLicenseState()));
         collectors.add(new NodeStatsCollector(clusterService, getLicenseState(), client));
         collectors.add(new IndexRecoveryCollector(clusterService, getLicenseState(), client));
         collectors.add(new JobStatsCollector(settings, clusterService, getLicenseState(), client));
         collectors.add(new StatsCollector(settings, clusterService, getLicenseState(), client));
+        collectors.add(new EnrichStatsCollector(clusterService, getLicenseState(), client, settings));
 
         final MonitoringService monitoringService = new MonitoringService(settings, clusterService, threadPool, collectors, exporters);
 
@@ -165,7 +172,7 @@ public class Monitoring extends Plugin implements ActionPlugin {
         if (false == enabled) {
             return emptyList();
         }
-        return singletonList(new RestMonitoringBulkAction(restController));
+        return singletonList(new RestMonitoringBulkAction());
     }
 
     @Override
@@ -184,6 +191,7 @@ public class Monitoring extends Plugin implements ActionPlugin {
         settings.add(JobStatsCollector.JOB_STATS_TIMEOUT);
         settings.add(StatsCollector.CCR_STATS_TIMEOUT);
         settings.add(NodeStatsCollector.NODE_STATS_TIMEOUT);
+        settings.add(EnrichStatsCollector.STATS_TIMEOUT);
         settings.addAll(Exporters.getSettings());
         return Collections.unmodifiableList(settings);
     }
@@ -192,5 +200,14 @@ public class Monitoring extends Plugin implements ActionPlugin {
     public List<String> getSettingsFilter() {
         final String exportersKey = "xpack.monitoring.exporters.";
         return Collections.unmodifiableList(Arrays.asList(exportersKey + "*.auth.*", exportersKey + "*.ssl.*"));
+    }
+
+    @Override
+    public void reload(Settings settings) throws Exception {
+        final List<String> changedExporters = HttpExporter.loadSettings(settings);
+        for (String changedExporter : changedExporters) {
+            final Settings settingsForChangedExporter = settings.filter(x -> x.startsWith("xpack.monitoring.exporters." + changedExporter));
+            exporters.setExportersSetting(settingsForChangedExporter);
+        }
     }
 }

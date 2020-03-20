@@ -74,6 +74,7 @@ import org.elasticsearch.cluster.ClusterState;
 import org.elasticsearch.cluster.metadata.AliasMetaData;
 import org.elasticsearch.cluster.metadata.AliasOrIndex;
 import org.elasticsearch.cluster.metadata.IndexMetaData;
+import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.MetaData;
 import org.elasticsearch.cluster.node.DiscoveryNode;
 import org.elasticsearch.cluster.service.ClusterService;
@@ -240,7 +241,7 @@ public class AuthorizationServiceTests extends ESTestCase {
         roleMap.put(ReservedRolesStore.SUPERUSER_ROLE_DESCRIPTOR.getName(), ReservedRolesStore.SUPERUSER_ROLE_DESCRIPTOR);
         authorizationService = new AuthorizationService(settings, rolesStore, clusterService,
             auditTrail, new DefaultAuthenticationFailureHandler(Collections.emptyMap()), threadPool, new AnonymousUser(settings), null,
-            Collections.emptySet(), new XPackLicenseState(settings));
+            Collections.emptySet(), new XPackLicenseState(settings), new IndexNameExpressionResolver());
     }
 
     private void authorize(Authentication authentication, String action, TransportRequest request) {
@@ -681,7 +682,7 @@ public class AuthorizationServiceTests extends ESTestCase {
         final AnonymousUser anonymousUser = new AnonymousUser(settings);
         authorizationService = new AuthorizationService(settings, rolesStore, clusterService, auditTrail,
             new DefaultAuthenticationFailureHandler(Collections.emptyMap()), threadPool, anonymousUser, null, Collections.emptySet(),
-            new XPackLicenseState(settings));
+            new XPackLicenseState(settings), new IndexNameExpressionResolver());
 
         RoleDescriptor role = new RoleDescriptor("a_all", null,
             new IndicesPrivileges[] { IndicesPrivileges.builder().indices("a").privileges("all").build() }, null);
@@ -709,7 +710,7 @@ public class AuthorizationServiceTests extends ESTestCase {
         final Authentication authentication = createAuthentication(new AnonymousUser(settings));
         authorizationService = new AuthorizationService(settings, rolesStore, clusterService, auditTrail,
             new DefaultAuthenticationFailureHandler(Collections.emptyMap()), threadPool, new AnonymousUser(settings), null,
-            Collections.emptySet(), new XPackLicenseState(settings));
+            Collections.emptySet(), new XPackLicenseState(settings), new IndexNameExpressionResolver());
 
         RoleDescriptor role = new RoleDescriptor("a_all", null,
             new IndicesPrivileges[]{IndicesPrivileges.builder().indices("a").privileges("all").build()}, null);
@@ -1193,16 +1194,16 @@ public class AuthorizationServiceTests extends ESTestCase {
                 eq(DeleteAction.NAME), eq("alias-2"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail).explicitIndexAccessEvent(eq(requestId), eq(AuditLevel.ACCESS_GRANTED), eq(authentication),
-                eq(IndexAction.NAME), eq("concrete-index"), eq(BulkItemRequest.class.getSimpleName()),
+                eq(IndexAction.NAME + ":op_type/index"), eq("concrete-index"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail).explicitIndexAccessEvent(eq(requestId), eq(AuditLevel.ACCESS_GRANTED), eq(authentication),
-                eq(IndexAction.NAME), eq("alias-1"), eq(BulkItemRequest.class.getSimpleName()),
+                eq(IndexAction.NAME + ":op_type/index"), eq("alias-1"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail).explicitIndexAccessEvent(eq(requestId), eq(AuditLevel.ACCESS_DENIED), eq(authentication),
                 eq(DeleteAction.NAME), eq("alias-1"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail).explicitIndexAccessEvent(eq(requestId), eq(AuditLevel.ACCESS_DENIED), eq(authentication),
-                eq(IndexAction.NAME), eq("alias-2"), eq(BulkItemRequest.class.getSimpleName()),
+                eq(IndexAction.NAME + ":op_type/index"), eq("alias-2"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail).accessGranted(eq(requestId), eq(authentication), eq(action), eq(request),
             authzInfoRoles(new String[] { role.getName() })); // bulk request is allowed
@@ -1236,7 +1237,7 @@ public class AuthorizationServiceTests extends ESTestCase {
                 eq(DeleteAction.NAME), Matchers.startsWith("datemath-"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         verify(auditTrail, times(2)).explicitIndexAccessEvent(eq(requestId), eq(AuditLevel.ACCESS_GRANTED), eq(authentication),
-                eq(IndexAction.NAME), Matchers.startsWith("datemath-"), eq(BulkItemRequest.class.getSimpleName()),
+                eq(IndexAction.NAME + ":op_type/index"), Matchers.startsWith("datemath-"), eq(BulkItemRequest.class.getSimpleName()),
                 eq(request.remoteAddress()), authzInfoRoles(new String[] { role.getName() }));
         // bulk request is allowed
         verify(auditTrail).accessGranted(eq(requestId), eq(authentication), eq(action), eq(request),
@@ -1451,7 +1452,7 @@ public class AuthorizationServiceTests extends ESTestCase {
         when(licenseState.isAuthorizationEngineAllowed()).thenReturn(true);
         authorizationService = new AuthorizationService(Settings.EMPTY, rolesStore, clusterService,
             auditTrail, new DefaultAuthenticationFailureHandler(Collections.emptyMap()), threadPool, new AnonymousUser(Settings.EMPTY),
-            engine, Collections.emptySet(), licenseState);
+            engine, Collections.emptySet(), licenseState, new IndexNameExpressionResolver());
         Authentication authentication;
         try (ThreadContext.StoredContext ignore = threadContext.stashContext()) {
             authentication = createAuthentication(new User("test user", "a_all"));

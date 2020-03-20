@@ -61,6 +61,7 @@ import org.elasticsearch.xpack.ccr.action.TransportFollowInfoAction;
 import org.elasticsearch.xpack.ccr.action.TransportFollowStatsAction;
 import org.elasticsearch.xpack.ccr.action.TransportForgetFollowerAction;
 import org.elasticsearch.xpack.ccr.action.TransportGetAutoFollowPatternAction;
+import org.elasticsearch.xpack.ccr.action.TransportActivateAutoFollowPatternAction;
 import org.elasticsearch.xpack.ccr.action.TransportPauseFollowAction;
 import org.elasticsearch.xpack.ccr.action.TransportPutAutoFollowPatternAction;
 import org.elasticsearch.xpack.ccr.action.TransportPutFollowAction;
@@ -82,9 +83,11 @@ import org.elasticsearch.xpack.ccr.rest.RestFollowInfoAction;
 import org.elasticsearch.xpack.ccr.rest.RestFollowStatsAction;
 import org.elasticsearch.xpack.ccr.rest.RestForgetFollowerAction;
 import org.elasticsearch.xpack.ccr.rest.RestGetAutoFollowPatternAction;
+import org.elasticsearch.xpack.ccr.rest.RestPauseAutoFollowPatternAction;
 import org.elasticsearch.xpack.ccr.rest.RestPauseFollowAction;
 import org.elasticsearch.xpack.ccr.rest.RestPutAutoFollowPatternAction;
 import org.elasticsearch.xpack.ccr.rest.RestPutFollowAction;
+import org.elasticsearch.xpack.ccr.rest.RestResumeAutoFollowPatternAction;
 import org.elasticsearch.xpack.ccr.rest.RestResumeFollowAction;
 import org.elasticsearch.xpack.ccr.rest.RestUnfollowAction;
 import org.elasticsearch.xpack.core.XPackPlugin;
@@ -97,6 +100,7 @@ import org.elasticsearch.xpack.core.ccr.action.FollowInfoAction;
 import org.elasticsearch.xpack.core.ccr.action.FollowStatsAction;
 import org.elasticsearch.xpack.core.ccr.action.ForgetFollowerAction;
 import org.elasticsearch.xpack.core.ccr.action.GetAutoFollowPatternAction;
+import org.elasticsearch.xpack.core.ccr.action.ActivateAutoFollowPatternAction;
 import org.elasticsearch.xpack.core.ccr.action.PauseFollowAction;
 import org.elasticsearch.xpack.core.ccr.action.PutAutoFollowPatternAction;
 import org.elasticsearch.xpack.core.ccr.action.PutFollowAction;
@@ -171,7 +175,8 @@ public class Ccr extends Plugin implements ActionPlugin, PersistentTaskPlugin, E
             final NamedXContentRegistry xContentRegistry,
             final Environment environment,
             final NodeEnvironment nodeEnvironment,
-            final NamedWriteableRegistry namedWriteableRegistry) {
+            final NamedWriteableRegistry namedWriteableRegistry,
+            final IndexNameExpressionResolver expressionResolver) {
         this.client = client;
         if (enabled == false) {
             return emptyList();
@@ -200,7 +205,8 @@ public class Ccr extends Plugin implements ActionPlugin, PersistentTaskPlugin, E
     public List<PersistentTasksExecutor<?>> getPersistentTasksExecutor(ClusterService clusterService,
                                                                        ThreadPool threadPool,
                                                                        Client client,
-                                                                       SettingsModule settingsModule) {
+                                                                       SettingsModule settingsModule,
+                                                                       IndexNameExpressionResolver expressionResolver) {
         return Collections.singletonList(new ShardFollowTasksExecutor(client, threadPool, clusterService, settingsModule));
     }
 
@@ -236,6 +242,7 @@ public class Ccr extends Plugin implements ActionPlugin, PersistentTaskPlugin, E
                 new ActionHandler<>(DeleteAutoFollowPatternAction.INSTANCE, TransportDeleteAutoFollowPatternAction.class),
                 new ActionHandler<>(PutAutoFollowPatternAction.INSTANCE, TransportPutAutoFollowPatternAction.class),
                 new ActionHandler<>(GetAutoFollowPatternAction.INSTANCE, TransportGetAutoFollowPatternAction.class),
+                new ActionHandler<>(ActivateAutoFollowPatternAction.INSTANCE, TransportActivateAutoFollowPatternAction.class),
                 // forget follower action
                 new ActionHandler<>(ForgetFollowerAction.INSTANCE, TransportForgetFollowerAction.class));
     }
@@ -250,20 +257,22 @@ public class Ccr extends Plugin implements ActionPlugin, PersistentTaskPlugin, E
 
         return Arrays.asList(
                 // stats API
-                new RestFollowStatsAction(restController),
-                new RestCcrStatsAction(restController),
-                new RestFollowInfoAction(restController),
+                new RestFollowStatsAction(),
+                new RestCcrStatsAction(),
+                new RestFollowInfoAction(),
                 // follow APIs
-                new RestPutFollowAction(restController),
-                new RestResumeFollowAction(restController),
-                new RestPauseFollowAction(restController),
-                new RestUnfollowAction(restController),
+                new RestPutFollowAction(),
+                new RestResumeFollowAction(),
+                new RestPauseFollowAction(),
+                new RestUnfollowAction(),
                 // auto-follow APIs
-                new RestDeleteAutoFollowPatternAction(restController),
-                new RestPutAutoFollowPatternAction(restController),
-                new RestGetAutoFollowPatternAction(restController),
+                new RestDeleteAutoFollowPatternAction(),
+                new RestPutAutoFollowPatternAction(),
+                new RestGetAutoFollowPatternAction(),
+                new RestPauseAutoFollowPatternAction(),
+                new RestResumeAutoFollowPatternAction(),
                 // forget follower API
-                new RestForgetFollowerAction(restController));
+                new RestForgetFollowerAction());
     }
 
     public List<NamedWriteableRegistry.Entry> getNamedWriteables() {
@@ -330,9 +339,10 @@ public class Ccr extends Plugin implements ActionPlugin, PersistentTaskPlugin, E
 
     @Override
     public Map<String, Repository.Factory> getInternalRepositories(Environment env, NamedXContentRegistry namedXContentRegistry,
-                                                                   ThreadPool threadPool) {
+                                                                   ClusterService clusterService) {
         Repository.Factory repositoryFactory =
-            (metadata) -> new CcrRepository(metadata, client, ccrLicenseChecker, settings, ccrSettings.get(), threadPool);
+            (metadata) -> new CcrRepository(metadata, client, ccrLicenseChecker, settings, ccrSettings.get(),
+                clusterService.getClusterApplierService().threadPool());
         return Collections.singletonMap(CcrRepository.TYPE, repositoryFactory);
     }
 

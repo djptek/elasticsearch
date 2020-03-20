@@ -35,14 +35,19 @@ public class DeprecationChecks {
         Collections.unmodifiableList(Arrays.asList(
             ClusterDeprecationChecks::checkUserAgentPipelines,
             ClusterDeprecationChecks::checkTemplatesWithTooManyFields,
-            ClusterDeprecationChecks::checkPollIntervalTooLow
+            ClusterDeprecationChecks::checkPollIntervalTooLow,
+            ClusterDeprecationChecks::checkTemplatesWithFieldNamesDisabled
         ));
 
 
     static List<BiFunction<Settings, PluginsAndModules, DeprecationIssue>> NODE_SETTINGS_CHECKS =
         Collections.unmodifiableList(Arrays.asList(
             NodeDeprecationChecks::checkPidfile,
-            NodeDeprecationChecks::checkProcessors
+            NodeDeprecationChecks::checkProcessors,
+            NodeDeprecationChecks::checkMissingRealmOrders,
+            NodeDeprecationChecks::checkUniqueRealmOrders,
+            (settings, pluginsAndModules) -> NodeDeprecationChecks.checkThreadPoolListenerQueueSize(settings),
+            (settings, pluginsAndModules) -> NodeDeprecationChecks.checkThreadPoolListenerSize(settings)
         ));
 
     static List<Function<IndexMetaData, DeprecationIssue>> INDEX_SETTINGS_CHECKS =
@@ -51,7 +56,8 @@ public class DeprecationChecks {
             IndexDeprecationChecks::tooManyFieldsCheck,
             IndexDeprecationChecks::chainedMultiFieldsCheck,
             IndexDeprecationChecks::deprecatedDateTimeFormat,
-            IndexDeprecationChecks::translogRetentionSettingCheck
+            IndexDeprecationChecks::translogRetentionSettingCheck,
+            IndexDeprecationChecks::fieldNamesDisabledCheck
         ));
 
     static List<BiFunction<DatafeedConfig, NamedXContentRegistry, DeprecationIssue>> ML_SETTINGS_CHECKS =

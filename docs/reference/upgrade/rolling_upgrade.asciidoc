@@ -7,6 +7,28 @@ a time so upgrading does not interrupt service. Running multiple versions of
 not supported, as shards cannot be replicated from upgraded nodes to nodes
 running the older version.
 
+We strongly recommend that when you upgrade you divide your cluster's nodes
+into the following two groups and upgrade the groups in this order:
+
+. Nodes that are not <<master-node,master-eligible>>. You can retrieve a list
+of these nodes with `GET /_nodes/_all,master:false` or by finding all the nodes
+configured with `node.master: false`.
+
+. Master-eligible nodes, which are the remaining nodes. You can retrieve a list
+of these nodes with `GET /_nodes/master:true`.
+
+You may upgrade the nodes within each of these groups in any order.
+
+Upgrading the nodes in this order ensures that the master-ineligible nodes are
+always running a version at least as new as the master-eligible nodes. Newer
+nodes can always join a cluster with an older master, but older nodes cannot
+always join a cluster with a newer master. By upgrading the master-eligible
+nodes last you ensure that all the master-ineligible nodes will be able to join
+the cluster whether the master-eligible nodes have been upgraded or not. If you
+upgrade any master-eligible nodes before the master-ineligible nodes then there
+is a risk that the older nodes will leave the cluster and will not be able to
+rejoin until they have been upgraded.
+
 Rolling upgrades are supported:
 
 * Between minor versions
@@ -16,7 +38,12 @@ Rolling upgrades are supported:
 Upgrading directly to {version} from 6.7 or earlier requires a
 <<restart-upgrade, full cluster restart>>.
 
-To perform a rolling upgrade from 6.8 to {version}:
+include::preparing_to_upgrade.asciidoc[]
+
+[float]
+=== Upgrading your cluster
+
+To perform a rolling upgrade to {version}:
 
 . *Disable shard allocation*.
 +
@@ -29,7 +56,7 @@ include::disable-shard-alloc.asciidoc[]
 --
 While you can continue indexing during the upgrade, shard recovery
 is much faster if you temporarily stop non-essential indexing and perform a
-<<synced-flush-api, synced-flush>>.
+<<indices-synced-flush-api, synced-flush>>.
 
 include::synced-flush.asciidoc[]
 
@@ -52,6 +79,13 @@ include::shut-down-node.asciidoc[]
 --
 include::upgrade-node.asciidoc[]
 include::set-paths-tip.asciidoc[]
+
+[[rolling-upgrades-bootstrapping]]
+NOTE: You should leave `cluster.initial_master_nodes` unset while performing a
+rolling upgrade. Each upgraded node is joining an existing cluster so there is
+no need for <<modules-discovery-bootstrap-cluster,cluster bootstrapping>>. You
+must configure <<built-in-hosts-providers,either `discovery.seed_hosts` or
+`discovery.seed_providers`>> on every node.
 --
 
 . *Upgrade any plugins.*
@@ -129,7 +163,7 @@ As soon as another node is upgraded, the replicas can be assigned and the
 status will change to `green`.
 ====================================================
 
-Shards that were not <<synced-flush-api,sync-flushed>> might take longer to
+Shards that were not <<indices-synced-flush-api,sync-flushed>> might take longer to
 recover.  You can monitor the recovery status of individual shards by
 submitting a <<cat-recovery,`_cat/recovery`>> request:
 
@@ -147,7 +181,20 @@ recovery completes.
 --
 
 When  the node has recovered and the cluster is stable, repeat these steps
-for each node that needs to be updated.
+for each node that needs to be updated. You can monitor the health of the cluster
+with a <<cat-health,`_cat/health`>> request:
+
+[source,console]
+--------------------------------------------------
+GET /_cat/health?v
+--------------------------------------------------
+
+And check which nodes have been upgraded with a <<cat-nodes,`_cat/nodes`>> request:
+
+[source,console]
+--------------------------------------------------
+GET /_cat/nodes?h=ip,name,version&v
+--------------------------------------------------
 
 --
 

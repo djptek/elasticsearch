@@ -32,6 +32,7 @@ import org.elasticsearch.common.Explicit;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.collect.Tuple;
 import org.elasticsearch.common.geo.ShapeRelation;
+import org.elasticsearch.common.joda.Joda;
 import org.elasticsearch.common.network.InetAddresses;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
@@ -44,11 +45,13 @@ import org.elasticsearch.common.xcontent.support.XContentMapValues;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.plain.DocValuesIndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.search.DocValueFormat;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -92,7 +95,7 @@ public class RangeFieldMapper extends FieldMapper {
 
         @Override
         public Builder docValues(boolean docValues) {
-            if (docValues == true) {
+            if (docValues) {
                 throw new IllegalArgumentException("field [" + name + "] does not currently support " + TypeParsers.DOC_VALUES);
             }
             return super.docValues(docValues);
@@ -136,7 +139,13 @@ public class RangeFieldMapper extends FieldMapper {
                     Objects.equals(builder.pattern, formatter.pattern()) == false;
 
                 if (hasPatternChanged || Objects.equals(builder.locale, formatter.locale()) == false) {
-                    fieldType().setDateTimeFormatter(DateFormatter.forPattern(pattern).withLocale(locale));
+                    DateFormatter dateTimeFormatter;
+                    if (Joda.isJodaPattern(context.indexCreatedVersion(), pattern)) {
+                        dateTimeFormatter = Joda.forPattern(pattern).withLocale(locale);
+                    } else {
+                        dateTimeFormatter = DateFormatter.forPattern(pattern).withLocale(locale);
+                    }
+                    fieldType().setDateTimeFormatter(dateTimeFormatter);
                 }
             } else if (pattern != null) {
                 throw new IllegalArgumentException("field [" + name() + "] of type [" + fieldType().rangeType
@@ -266,6 +275,23 @@ public class RangeFieldMapper extends FieldMapper {
             } else {
                 return new TermQuery(new Term(FieldNamesFieldMapper.NAME, name()));
             }
+        }
+
+        @Override
+        public DocValueFormat docValueFormat(String format, ZoneId timeZone) {
+            if (rangeType == RangeType.DATE) {
+                DateFormatter dateTimeFormatter = this.dateTimeFormatter;
+                if (format != null) {
+                    dateTimeFormatter = DateFormatter.forPattern(format).withLocale(dateTimeFormatter.locale());
+                }
+                if (timeZone == null) {
+                    timeZone = ZoneOffset.UTC;
+                }
+                // the resolution here is always set to milliseconds, as aggregations use this formatter mainly and those are always in
+                // milliseconds. The only special case here is docvalue fields, which are handled somewhere else
+                return new DocValueFormat.DateTime(dateTimeFormatter, timeZone, DateFieldMapper.Resolution.MILLISECONDS);
+            }
+            return super.docValueFormat(format, timeZone);
         }
 
         @Override

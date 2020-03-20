@@ -13,6 +13,11 @@
 
 FROM centos:7 AS builder
 
+RUN for iter in {1..10}; do yum update --setopt=tsflags=nodocs -y && \
+    yum install --setopt=tsflags=nodocs -y gzip shadow-utils tar && \
+    yum clean all && exit_code=0 && break || exit_code=\$? && echo "yum error: retry \$iter in 10s" && sleep 10; done; \
+    (exit \$exit_code)
+
 ENV PATH /usr/share/elasticsearch/bin:\$PATH
 
 RUN groupadd -g 1000 elasticsearch && \
@@ -24,10 +29,11 @@ ${source_elasticsearch}
 
 RUN tar zxf /opt/${elasticsearch} --strip-components=1
 RUN grep ES_DISTRIBUTION_TYPE=tar /usr/share/elasticsearch/bin/elasticsearch-env \
-    && sed -ie 's/ES_DISTRIBUTION_TYPE=tar/ES_DISTRIBUTION_TYPE=docker/' /usr/share/elasticsearch/bin/elasticsearch-env
-RUN mkdir -p config data logs
-RUN chmod 0775 config data logs
+    && sed -i -e 's/ES_DISTRIBUTION_TYPE=tar/ES_DISTRIBUTION_TYPE=docker/' /usr/share/elasticsearch/bin/elasticsearch-env
+RUN mkdir -p config config/jvm.options.d data logs
+RUN chmod 0775 config config/jvm.options.d data logs
 COPY config/elasticsearch.yml config/log4j2.properties config/
+RUN chmod 0660 config/elasticsearch.yml config/log4j2.properties
 
 ################################################################################
 # Build stage 1 (the actual elasticsearch image):
@@ -39,8 +45,8 @@ FROM centos:7
 
 ENV ELASTIC_CONTAINER true
 
-RUN for iter in {1..10}; do yum update -y && \
-    yum install -y nc && \
+RUN for iter in {1..10}; do yum update --setopt=tsflags=nodocs -y && \
+    yum install --setopt=tsflags=nodocs -y nc shadow-utils zip unzip && \
     yum clean all && exit_code=0 && break || exit_code=\$? && echo "yum error: retry \$iter in 10s" && sleep 10; done; \
     (exit \$exit_code)
 
@@ -60,6 +66,9 @@ RUN ln -sf /etc/pki/ca-trust/extracted/java/cacerts /usr/share/elasticsearch/jdk
 ENV PATH /usr/share/elasticsearch/bin:\$PATH
 
 COPY --chown=1000:0 bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# Ensure that there are no files with setuid or setgid, in order to mitigate "stackclash" attacks.
+RUN find / -xdev -perm -4000 -exec chmod ug-s {} +
 
 # Openshift overrides USER and uses ones with randomly uid>1024 and gid=0
 # Allow ENTRYPOINT (and ES) to run even with a different user

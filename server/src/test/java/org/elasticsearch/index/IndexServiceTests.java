@@ -43,10 +43,8 @@ import org.elasticsearch.test.InternalSettingsPlugin;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,7 +69,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
         return new CompressedXContent(Strings.toString(builder));
     }
 
-    public void testBaseAsyncTask() throws InterruptedException, IOException {
+    public void testBaseAsyncTask() throws Exception {
         IndexService indexService = createIndex("test", Settings.EMPTY);
         AtomicReference<CountDownLatch> latch = new AtomicReference<>(new CountDownLatch(1));
         AtomicReference<CountDownLatch> latch2 = new AtomicReference<>(new CountDownLatch(1));
@@ -127,7 +125,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
         // now close the index
         final Index index = indexService.index();
         assertAcked(client().admin().indices().prepareClose(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
 
         final IndexService closedIndexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(indexService, closedIndexService);
@@ -137,7 +135,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
 
         // now reopen the index
         assertAcked(client().admin().indices().prepareOpen(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
         indexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(closedIndexService, indexService);
 
@@ -205,7 +203,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
         // now close the index
         final Index index = indexService.index();
         assertAcked(client().admin().indices().prepareClose(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
 
         final IndexService closedIndexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(indexService, closedIndexService);
@@ -216,7 +214,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
 
         // now reopen the index
         assertAcked(client().admin().indices().prepareOpen(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
         indexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(closedIndexService, indexService);
         refreshTask = indexService.getRefreshTask();
@@ -242,7 +240,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
         // now close the index
         final Index index = indexService.index();
         assertAcked(client().admin().indices().prepareClose(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
 
         final IndexService closedIndexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(indexService, closedIndexService);
@@ -253,7 +251,7 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
 
         // now reopen the index
         assertAcked(client().admin().indices().prepareOpen(index.getName()));
-        awaitBusy(() -> getInstanceFromNode(IndicesService.class).hasIndex(index));
+        assertBusy(() -> assertTrue("Index not found: " + index.getName(), getInstanceFromNode(IndicesService.class).hasIndex(index)));
         indexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(index);
         assertNotSame(closedIndexService, indexService);
         fsyncTask = indexService.getFsyncTask();
@@ -393,8 +391,6 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
             .build());
 
         Translog translog = IndexShardTestCase.getTranslog(indexService.getShard(0));
-        final Path translogPath = translog.getConfig().getTranslogPath();
-        final String translogUuid = translog.getTranslogUUID();
 
         int translogOps = 0;
         final int numDocs = scaledRandomIntBetween(10, 100);
@@ -415,15 +411,9 @@ public class IndexServiceTests extends ESSingleNodeTestCase {
         indexService = getInstanceFromNode(IndicesService.class).indexServiceSafe(indexService.index());
         assertTrue(indexService.getTrimTranslogTask().mustReschedule());
 
-        final long lastCommitedTranslogGeneration;
-        try (Engine.IndexCommitRef indexCommitRef = getEngine(indexService.getShard(0)).acquireLastIndexCommit(false)) {
-            Map<String, String> lastCommittedUserData = indexCommitRef.getIndexCommit().getUserData();
-            lastCommitedTranslogGeneration = Long.parseLong(lastCommittedUserData.get(Translog.TRANSLOG_GENERATION_KEY));
-        }
-        assertBusy(() -> {
-            long minTranslogGen = Translog.readMinTranslogGeneration(translogPath, translogUuid);
-            assertThat(minTranslogGen, equalTo(lastCommitedTranslogGeneration));
-        });
+        final Engine readOnlyEngine = getEngine(indexService.getShard(0));
+        assertBusy(() ->
+            assertThat(readOnlyEngine.getTranslogStats().getTranslogSizeInBytes(), equalTo((long) Translog.DEFAULT_HEADER_SIZE_IN_BYTES)));
 
         assertAcked(client().admin().indices().prepareOpen("test").setWaitForActiveShards(ActiveShardCount.DEFAULT));
 

@@ -7,6 +7,8 @@ package org.elasticsearch.xpack.core.ml.datafeed;
 
 import org.apache.logging.log4j.LogManager;
 import org.elasticsearch.Version;
+import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.common.ParseField;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -81,6 +83,10 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         PARSER.declareObject(Builder::setDelayedDataCheckConfig,
             DelayedDataCheckConfig.STRICT_PARSER,
             DatafeedConfig.DELAYED_DATA_CHECK_CONFIG);
+        PARSER.declareInt(Builder::setMaxEmptySearches, DatafeedConfig.MAX_EMPTY_SEARCHES);
+        PARSER.declareObject(Builder::setIndicesOptions,
+            (p, c) -> IndicesOptions.fromMap(p.map(), SearchRequest.DEFAULT_INDICES_OPTIONS),
+            DatafeedConfig.INDICES_OPTIONS);
     }
 
     private final String id;
@@ -94,11 +100,14 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
     private final Integer scrollSize;
     private final ChunkingConfig chunkingConfig;
     private final DelayedDataCheckConfig delayedDataCheckConfig;
+    private final Integer maxEmptySearches;
+    private final IndicesOptions indicesOptions;
 
     private DatafeedUpdate(String id, String jobId, TimeValue queryDelay, TimeValue frequency, List<String> indices,
                            QueryProvider queryProvider, AggProvider aggProvider,
                            List<SearchSourceBuilder.ScriptField> scriptFields,
-                           Integer scrollSize, ChunkingConfig chunkingConfig, DelayedDataCheckConfig delayedDataCheckConfig) {
+                           Integer scrollSize, ChunkingConfig chunkingConfig, DelayedDataCheckConfig delayedDataCheckConfig,
+                           Integer maxEmptySearches, IndicesOptions indicesOptions) {
         this.id = id;
         this.jobId = jobId;
         this.queryDelay = queryDelay;
@@ -110,6 +119,8 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         this.scrollSize = scrollSize;
         this.chunkingConfig = chunkingConfig;
         this.delayedDataCheckConfig = delayedDataCheckConfig;
+        this.maxEmptySearches = maxEmptySearches;
+        this.indicesOptions = indicesOptions;
     }
 
     public DatafeedUpdate(StreamInput in) throws IOException {
@@ -146,6 +157,16 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
             delayedDataCheckConfig = in.readOptionalWriteable(DelayedDataCheckConfig::new);
         } else {
             delayedDataCheckConfig = null;
+        }
+        if (in.getVersion().onOrAfter(Version.V_7_5_0)) {
+            maxEmptySearches = in.readOptionalInt();
+        } else {
+            maxEmptySearches = null;
+        }
+        if (in.getVersion().onOrAfter(Version.V_7_7_0)) {
+            indicesOptions = in.readBoolean() ? IndicesOptions.readIndicesOptions(in) : null;
+        } else {
+            indicesOptions = null;
         }
     }
 
@@ -192,6 +213,17 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         if (out.getVersion().onOrAfter(Version.V_6_6_0)) {
             out.writeOptionalWriteable(delayedDataCheckConfig);
         }
+        if (out.getVersion().onOrAfter(Version.V_7_5_0)) {
+            out.writeOptionalInt(maxEmptySearches);
+        }
+        if (out.getVersion().onOrAfter(Version.V_7_7_0)) {
+            if (indicesOptions != null) {
+                out.writeBoolean(true);
+                indicesOptions.writeIndicesOptions(out);
+            } else {
+                out.writeBoolean(false);
+            }
+        }
     }
 
     @Override
@@ -222,6 +254,12 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         addOptionalField(builder, DatafeedConfig.SCROLL_SIZE, scrollSize);
         addOptionalField(builder, DatafeedConfig.CHUNKING_CONFIG, chunkingConfig);
         addOptionalField(builder, DatafeedConfig.DELAYED_DATA_CHECK_CONFIG, delayedDataCheckConfig);
+        addOptionalField(builder, DatafeedConfig.MAX_EMPTY_SEARCHES, maxEmptySearches);
+        if (indicesOptions != null) {
+            builder.startObject(DatafeedConfig.INDICES_OPTIONS.getPreferredName());
+            indicesOptions.toXContent(builder, params);
+            builder.endObject();
+        }
         builder.endObject();
         return builder;
     }
@@ -290,6 +328,14 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         return delayedDataCheckConfig;
     }
 
+    public Integer getMaxEmptySearches() {
+        return maxEmptySearches;
+    }
+
+    public IndicesOptions getIndicesOptions() {
+        return indicesOptions;
+    }
+
     /**
      * Applies the update to the given {@link DatafeedConfig}
      * @return a new {@link DatafeedConfig} that contains the update
@@ -334,6 +380,12 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         if (delayedDataCheckConfig != null) {
             builder.setDelayedDataCheckConfig(delayedDataCheckConfig);
         }
+        if (maxEmptySearches != null) {
+            builder.setMaxEmptySearches(maxEmptySearches);
+        }
+        if (indicesOptions != null) {
+            builder.setIndicesOptions(indicesOptions);
+        }
 
         if (headers.isEmpty() == false) {
             // Adjust the request, adding security headers from the current thread context
@@ -373,13 +425,15 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
                 && Objects.equals(this.aggProvider, that.aggProvider)
                 && Objects.equals(this.delayedDataCheckConfig, that.delayedDataCheckConfig)
                 && Objects.equals(this.scriptFields, that.scriptFields)
-                && Objects.equals(this.chunkingConfig, that.chunkingConfig);
+                && Objects.equals(this.chunkingConfig, that.chunkingConfig)
+                && Objects.equals(this.maxEmptySearches, that.maxEmptySearches)
+                && Objects.equals(this.indicesOptions, that.indicesOptions);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(id, jobId, frequency, queryDelay, indices, queryProvider, scrollSize, aggProvider, scriptFields, chunkingConfig,
-                delayedDataCheckConfig);
+                delayedDataCheckConfig, maxEmptySearches, indicesOptions);
     }
 
     @Override
@@ -396,7 +450,10 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
                 && (aggProvider == null || Objects.equals(aggProvider.getAggs(), datafeed.getAggregations()))
                 && (scriptFields == null || Objects.equals(scriptFields, datafeed.getScriptFields()))
                 && (delayedDataCheckConfig == null || Objects.equals(delayedDataCheckConfig, datafeed.getDelayedDataCheckConfig()))
-                && (chunkingConfig == null || Objects.equals(chunkingConfig, datafeed.getChunkingConfig()));
+                && (chunkingConfig == null || Objects.equals(chunkingConfig, datafeed.getChunkingConfig()))
+                && (maxEmptySearches == null || Objects.equals(maxEmptySearches, datafeed.getMaxEmptySearches())
+                        || (maxEmptySearches == -1 && datafeed.getMaxEmptySearches() == null))
+                && (indicesOptions == null || Objects.equals(indicesOptions, datafeed.getIndicesOptions()));
     }
 
     public static class Builder {
@@ -412,6 +469,8 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
         private Integer scrollSize;
         private ChunkingConfig chunkingConfig;
         private DelayedDataCheckConfig delayedDataCheckConfig;
+        private Integer maxEmptySearches;
+        private IndicesOptions indicesOptions;
 
         public Builder() {
         }
@@ -432,6 +491,8 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
             this.scrollSize = config.scrollSize;
             this.chunkingConfig = config.chunkingConfig;
             this.delayedDataCheckConfig = config.delayedDataCheckConfig;
+            this.maxEmptySearches = config.maxEmptySearches;
+            this.indicesOptions = config.indicesOptions;
         }
 
         public Builder setId(String datafeedId) {
@@ -499,9 +560,24 @@ public class DatafeedUpdate implements Writeable, ToXContentObject {
             return this;
         }
 
+        public Builder setMaxEmptySearches(int maxEmptySearches) {
+            if (maxEmptySearches < -1 || maxEmptySearches == 0) {
+                String msg = Messages.getMessage(Messages.DATAFEED_CONFIG_INVALID_OPTION_VALUE,
+                    DatafeedConfig.MAX_EMPTY_SEARCHES.getPreferredName(), maxEmptySearches);
+                throw ExceptionsHelper.badRequestException(msg);
+            }
+            this.maxEmptySearches = maxEmptySearches;
+            return this;
+        }
+
+        public Builder setIndicesOptions(IndicesOptions indicesOptions) {
+            this.indicesOptions = indicesOptions;
+            return this;
+        }
+
         public DatafeedUpdate build() {
             return new DatafeedUpdate(id, jobId, queryDelay, frequency, indices, queryProvider, aggProvider, scriptFields, scrollSize,
-                    chunkingConfig, delayedDataCheckConfig);
+                    chunkingConfig, delayedDataCheckConfig, maxEmptySearches, indicesOptions);
         }
     }
 }

@@ -40,6 +40,7 @@ import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.plain.AbstractLatLonPointDVIndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
 import org.elasticsearch.index.query.QueryShardException;
+import org.elasticsearch.index.query.VectorGeoPointShapeQueryProcessor;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -122,6 +123,14 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
         }
 
         @Override
+        protected void setupFieldType(BuilderContext context) {
+            super.setupFieldType(context);
+
+            GeoPointFieldType fieldType = (GeoPointFieldType)fieldType();
+            fieldType.setGeometryQueryBuilder(new VectorGeoPointShapeQueryProcessor());
+        }
+
+        @Override
         public GeoPointFieldMapper build(BuilderContext context) {
             return build(context, name, fieldType, defaultFieldType, context.indexSettings(),
                 multiFieldsBuilder.build(this, context), ignoreMalformed(context),
@@ -159,7 +168,7 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
 
             if (nullValue != null) {
                 boolean ignoreZValue = builder.ignoreZValue == null ? Defaults.IGNORE_Z_VALUE.value() : builder.ignoreZValue;
-                boolean ignoreMalformed = builder.ignoreMalformed == null ? Defaults.IGNORE_MALFORMED.value() : builder.ignoreZValue;
+                boolean ignoreMalformed = builder.ignoreMalformed == null ? Defaults.IGNORE_MALFORMED.value() : builder.ignoreMalformed;
                 GeoPoint point = GeoUtils.parseGeoPoint(nullValue, ignoreZValue);
                 if (ignoreMalformed == false) {
                     if (point.lat() > 90.0 || point.lat() < -90.0) {
@@ -210,7 +219,7 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
         throw new UnsupportedOperationException("Parsing is implemented in parse(), this method should NEVER be called");
     }
 
-    public static class GeoPointFieldType extends MappedFieldType {
+    public static class GeoPointFieldType extends AbstractSearchableGeometryFieldType {
         public GeoPointFieldType() {
         }
 
@@ -245,7 +254,8 @@ public class GeoPointFieldMapper extends FieldMapper implements ArrayValueMapper
 
         @Override
         public Query termQuery(Object value, QueryShardContext context) {
-            throw new QueryShardException(context, "Geo fields do not support exact searching, use dedicated geo queries instead: ["
+            throw new QueryShardException(context,
+                "Geo fields do not support exact searching, use dedicated geo queries instead: ["
                 + name() + "]");
         }
     }

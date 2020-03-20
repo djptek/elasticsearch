@@ -29,6 +29,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.time.DateFormatter;
 import org.elasticsearch.index.cache.request.RequestCacheStats;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.search.aggregations.bucket.global.GlobalAggregationBuilder;
 import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram.Bucket;
@@ -96,6 +97,7 @@ public class IndicesRequestCacheIT extends ESIntegTestCase {
         }
     }
 
+    @AwaitsFix(bugUrl = "https://github.com/elastic/elasticsearch/issues/32827")
     public void testQueryRewrite() throws Exception {
         Client client = client();
         assertAcked(client.admin().indices().prepareCreate("index").addMapping("type", "s", "type=date")
@@ -123,20 +125,26 @@ public class IndicesRequestCacheIT extends ESIntegTestCase {
         assertCacheState(client, "index", 0, 0);
 
         final SearchResponse r1 = client.prepareSearch("index").setSearchType(SearchType.QUERY_THEN_FETCH).setSize(0)
-                .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-19").lte("2016-03-25")).setPreFilterShardSize(Integer.MAX_VALUE).get();
+            .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-19").lte("2016-03-25"))
+            // to ensure that query is executed even if it rewrites to match_no_docs
+            .addAggregation(new GlobalAggregationBuilder("global"))
+            .setPreFilterShardSize(Integer.MAX_VALUE).get();
         ElasticsearchAssertions.assertAllSuccessful(r1);
         assertThat(r1.getHits().getTotalHits().value, equalTo(7L));
         assertCacheState(client, "index", 0, 5);
 
         final SearchResponse r2 = client.prepareSearch("index").setSearchType(SearchType.QUERY_THEN_FETCH).setSize(0)
-                .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-20").lte("2016-03-26"))
+            .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-20").lte("2016-03-26"))
+            .addAggregation(new GlobalAggregationBuilder("global"))
             .setPreFilterShardSize(Integer.MAX_VALUE).get();
         ElasticsearchAssertions.assertAllSuccessful(r2);
         assertThat(r2.getHits().getTotalHits().value, equalTo(7L));
         assertCacheState(client, "index", 3, 7);
 
         final SearchResponse r3 = client.prepareSearch("index").setSearchType(SearchType.QUERY_THEN_FETCH).setSize(0)
-                .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-21").lte("2016-03-27")).setPreFilterShardSize(Integer.MAX_VALUE)
+            .setQuery(QueryBuilders.rangeQuery("s").gte("2016-03-21").lte("2016-03-27"))
+            .addAggregation(new GlobalAggregationBuilder("global"))
+            .setPreFilterShardSize(Integer.MAX_VALUE)
             .get();
         ElasticsearchAssertions.assertAllSuccessful(r3);
         assertThat(r3.getHits().getTotalHits().value, equalTo(7L));
@@ -234,6 +242,7 @@ public class IndicesRequestCacheIT extends ESIntegTestCase {
         assertCacheState(client, "index", 2, 1);
     }
 
+    @AwaitsFix(bugUrl = "https://github.com/elastic/elasticsearch/issues/32827")
     public void testQueryRewriteDatesWithNow() throws Exception {
         Client client = client();
         Settings settings = Settings.builder().put(IndicesRequestCache.INDEX_CACHE_REQUEST_ENABLED_SETTING.getKey(), true)
@@ -414,9 +423,49 @@ public class IndicesRequestCacheIT extends ESIntegTestCase {
         assertCacheState(client, "index", 2, 2);
     }
 
+    public void testProfileDisableCache() throws Exception {
+        Client client = client();
+        assertAcked(
+            client.admin().indices().prepareCreate("index")
+                .addMapping("_doc", "k", "type=keyword")
+                .setSettings(
+                    Settings.builder()
+                        .put(IndicesRequestCache.INDEX_CACHE_REQUEST_ENABLED_SETTING.getKey(), true)
+                        .put(IndexMetaData.SETTING_NUMBER_OF_SHARDS, 1)
+                        .put(IndexMetaData.SETTING_NUMBER_OF_REPLICAS, 0)
+                )
+                .get()
+        );
+        indexRandom(true, client.prepareIndex("index", "_doc").setSource("k", "hello"));
+        ensureSearchable("index");
+
+        int expectedHits = 0;
+        int expectedMisses = 0;
+        for (int i = 0; i < 5; i++) {
+            boolean profile = i % 2 == 0;
+            SearchResponse resp = client.prepareSearch("index")
+                .setRequestCache(true)
+                .setProfile(profile)
+                .setQuery(QueryBuilders.termQuery("k", "hello"))
+                .get();
+            assertSearchResponse(resp);
+            ElasticsearchAssertions.assertAllSuccessful(resp);
+            assertThat(resp.getHits().getTotalHits().value, equalTo(1L));
+            if (profile == false) {
+                if (i == 1) {
+                    expectedMisses ++;
+                } else {
+                    expectedHits ++;
+                }
+            }
+            assertCacheState(client, "index", expectedHits, expectedMisses);
+        }
+    }
+
     private static void assertCacheState(Client client, String index, long expectedHits, long expectedMisses) {
-        RequestCacheStats requestCacheStats = client.admin().indices().prepareStats(index).setRequestCache(true).get().getTotal()
-                .getRequestCache();
+        RequestCacheStats requestCacheStats = client.admin().indices().prepareStats(index)
+            .setRequestCache(true)
+            .get().getTotal().getRequestCache();
         // Check the hit count and miss count together so if they are not
         // correct we can see both values
         assertEquals(Arrays.asList(expectedHits, expectedMisses, 0L),

@@ -48,7 +48,7 @@ import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.test.tasks.MockTaskManager;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.ConnectTransportException;
-import org.elasticsearch.transport.ConnectionManager;
+import org.elasticsearch.transport.ClusterConnectionManager;
 import org.elasticsearch.transport.ConnectionProfile;
 import org.elasticsearch.transport.RequestHandlerRegistry;
 import org.elasticsearch.transport.Transport;
@@ -92,11 +92,17 @@ public final class MockTransportService extends TransportService {
 
     private final Map<DiscoveryNode, List<Transport.Connection>> openConnections = new HashMap<>();
 
+    private final List<Runnable> onStopListeners = new CopyOnWriteArrayList<>();
+
     public static class TestPlugin extends Plugin {
         @Override
         public List<Setting<?>> getSettings() {
             return Arrays.asList(MockTaskManager.USE_MOCK_TASK_MANAGER_SETTING);
         }
+    }
+
+    public static MockTransportService createNewService(Settings settings, Version version, ThreadPool threadPool) {
+        return createNewService(settings, version, threadPool, null);
     }
 
     public static MockTransportService createNewService(Settings settings, Version version, ThreadPool threadPool,
@@ -114,7 +120,13 @@ public final class MockTransportService extends TransportService {
 
     public static MockTransportService createNewService(Settings settings, Transport transport, Version version, ThreadPool threadPool,
                                                         @Nullable ClusterSettings clusterSettings, Set<String> taskHeaders) {
-        return new MockTransportService(settings, transport, threadPool, TransportService.NOOP_TRANSPORT_INTERCEPTOR,
+        return createNewService(settings, transport, version, threadPool, clusterSettings, taskHeaders, NOOP_TRANSPORT_INTERCEPTOR);
+    }
+
+    public static MockTransportService createNewService(Settings settings, Transport transport, Version version, ThreadPool threadPool,
+                                                        @Nullable ClusterSettings clusterSettings, Set<String> taskHeaders,
+                                                        TransportInterceptor interceptor) {
+        return new MockTransportService(settings, transport, threadPool, interceptor,
             boundAddress ->
                 new DiscoveryNode(Node.NODE_NAME_SETTING.get(settings), UUIDs.randomBase64UUID(), boundAddress.publishAddress(),
                     Node.NODE_ATTRIBUTES.getAsMap(settings), DiscoveryNode.getRolesFromSettings(settings), version),
@@ -154,7 +166,7 @@ public final class MockTransportService extends TransportService {
                                  Function<BoundTransportAddress, DiscoveryNode> localNodeFactory,
                                  @Nullable ClusterSettings clusterSettings, Set<String> taskHeaders) {
         super(settings, transport, threadPool, interceptor, localNodeFactory, clusterSettings, taskHeaders,
-            new StubbableConnectionManager(new ConnectionManager(settings, transport), settings, transport));
+            new StubbableConnectionManager(new ClusterConnectionManager(settings, transport)));
         this.original = transport.getDelegate();
     }
 
@@ -463,7 +475,7 @@ public final class MockTransportService extends TransportService {
      * @return {@code true} if no other get connection behavior was registered for this address before.
      */
     public boolean addGetConnectionBehavior(TransportAddress transportAddress, StubbableConnectionManager.GetConnectionBehavior behavior) {
-        return connectionManager().addConnectBehavior(transportAddress, behavior);
+        return connectionManager().addGetConnectionBehavior(transportAddress, behavior);
     }
 
     /**
@@ -522,6 +534,16 @@ public final class MockTransportService extends TransportService {
         }
 
         return connection;
+    }
+
+    public void addOnStopListener(Runnable listener) {
+        onStopListeners.add(listener);
+    }
+
+    @Override
+    protected void doStop() {
+        onStopListeners.forEach(Runnable::run);
+        super.doStop();
     }
 
     @Override

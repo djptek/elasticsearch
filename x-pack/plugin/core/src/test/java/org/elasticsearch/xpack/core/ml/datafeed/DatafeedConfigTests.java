@@ -7,7 +7,10 @@ package org.elasticsearch.xpack.core.ml.datafeed;
 
 import com.carrotsearch.randomizedtesting.generators.CodepointSetGenerator;
 import org.elasticsearch.ElasticsearchException;
+import org.elasticsearch.ElasticsearchStatusException;
 import org.elasticsearch.Version;
+import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.common.bytes.BytesReference;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
 import org.elasticsearch.common.io.stream.NamedWriteableAwareStreamInput;
@@ -56,6 +59,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static org.elasticsearch.xpack.core.ml.utils.QueryProviderTests.createRandomValidQueryProvider;
@@ -68,6 +72,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 
 public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedConfig> {
 
@@ -97,11 +102,15 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
     }
 
     public static DatafeedConfig createRandomizedDatafeedConfig(String jobId, long bucketSpanMillis) {
-        return createRandomizedDatafeedConfigBuilder(jobId, bucketSpanMillis).build();
+        return createRandomizedDatafeedConfig(jobId, randomValidDatafeedId(), bucketSpanMillis);
     }
 
-    private static DatafeedConfig.Builder createRandomizedDatafeedConfigBuilder(String jobId, long bucketSpanMillis) {
-        DatafeedConfig.Builder builder = new DatafeedConfig.Builder(randomValidDatafeedId(), jobId);
+    public static DatafeedConfig createRandomizedDatafeedConfig(String jobId, String datafeedId, long bucketSpanMillis) {
+        return createRandomizedDatafeedConfigBuilder(jobId, datafeedId, bucketSpanMillis).build();
+    }
+
+    private static DatafeedConfig.Builder createRandomizedDatafeedConfigBuilder(String jobId, String datafeedId, long bucketSpanMillis) {
+        DatafeedConfig.Builder builder = new DatafeedConfig.Builder(datafeedId, jobId);
         builder.setIndices(randomStringList(1, 10));
         if (randomBoolean()) {
             builder.setQueryProvider(createRandomValidQueryProvider(randomAlphaOfLengthBetween(1, 10), randomAlphaOfLengthBetween(1, 10)));
@@ -149,6 +158,15 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
         if (randomBoolean()) {
             builder.setDelayedDataCheckConfig(DelayedDataCheckConfigTests.createRandomizedConfig(bucketSpanMillis));
         }
+        if (randomBoolean()) {
+            builder.setMaxEmptySearches(randomIntBetween(10, 100));
+        }
+        builder.setIndicesOptions(IndicesOptions.fromParameters(
+            randomFrom(IndicesOptions.WildcardStates.values()).name().toLowerCase(Locale.ROOT),
+            Boolean.toString(randomBoolean()),
+            Boolean.toString(randomBoolean()),
+            Boolean.toString(randomBoolean()),
+            SearchRequest.DEFAULT_INDICES_OPTIONS));
         return builder;
     }
 
@@ -269,7 +287,7 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
                 .createParser(xContentRegistry(), DeprecationHandler.THROW_UNSUPPORTED_OPERATION, FUTURE_DATAFEED);
         XContentParseException e = expectThrows(XContentParseException.class,
                 () -> DatafeedConfig.STRICT_PARSER.apply(parser, null).build());
-        assertEquals("[6:5] [datafeed_config] unknown field [tomorrows_technology_today], parser not found", e.getMessage());
+        assertEquals("[6:5] [datafeed_config] unknown field [tomorrows_technology_today]", e.getMessage());
     }
 
     public void testPastQueryConfigParse() throws IOException {
@@ -335,7 +353,7 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
     }
 
     public void testToXContentForInternalStorage() throws IOException {
-        DatafeedConfig.Builder builder = createRandomizedDatafeedConfigBuilder("foo", 300);
+        DatafeedConfig.Builder builder = createRandomizedDatafeedConfigBuilder("foo", randomValidDatafeedId(), 300);
 
         // headers are only persisted to cluster state
         Map<String, String> headers = new HashMap<>();
@@ -378,10 +396,10 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
         defaultFeedBuilder.setIndices(Collections.singletonList("index"));
         DatafeedConfig defaultFeed = defaultFeedBuilder.build();
 
-
         assertThat(defaultFeed.getScrollSize(), equalTo(1000));
         assertThat(defaultFeed.getQueryDelay().seconds(), greaterThanOrEqualTo(60L));
         assertThat(defaultFeed.getQueryDelay().seconds(), lessThan(120L));
+        assertThat(defaultFeed.getMaxEmptySearches(), is(nullValue()));
     }
 
     public void testDefaultQueryDelay() {
@@ -404,6 +422,20 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
     public void testCheckValid_GivenNullIndices() {
         DatafeedConfig.Builder conf = new DatafeedConfig.Builder("datafeed1", "job1");
         expectThrows(IllegalArgumentException.class, () -> conf.setIndices(null));
+    }
+
+    public void testCheckValid_GivenInvalidMaxEmptySearches() {
+        DatafeedConfig.Builder conf = new DatafeedConfig.Builder("datafeed1", "job1");
+        ElasticsearchStatusException e =
+            expectThrows(ElasticsearchStatusException.class, () -> conf.setMaxEmptySearches(randomFrom(-2, 0)));
+        assertThat(e.getMessage(), containsString("Invalid max_empty_searches value"));
+    }
+
+    public void testCheckValid_GivenMaxEmptySearchesMinusOne() {
+        DatafeedConfig.Builder conf = new DatafeedConfig.Builder("datafeed1", "job1");
+        conf.setIndices(Collections.singletonList("whatever"));
+        conf.setMaxEmptySearches(-1);
+        assertThat(conf.build().getMaxEmptySearches(), is(nullValue()));
     }
 
     public void testCheckValid_GivenEmptyIndices() {
@@ -824,7 +856,7 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
     @Override
     protected DatafeedConfig mutateInstance(DatafeedConfig instance) throws IOException {
         DatafeedConfig.Builder builder = new DatafeedConfig.Builder(instance);
-        switch (between(0, 9)) {
+        switch (between(0, 11)) {
         case 0:
             builder.setId(instance.getId() + randomValidDatafeedId());
             break;
@@ -885,6 +917,21 @@ public class DatafeedConfigTests extends AbstractSerializingTestCase<DatafeedCon
             } else {
                 builder.setChunkingConfig(ChunkingConfig.newAuto());
             }
+            break;
+        case 10:
+            if (instance.getMaxEmptySearches() == null) {
+                builder.setMaxEmptySearches(randomIntBetween(10, 100));
+            } else {
+                builder.setMaxEmptySearches(instance.getMaxEmptySearches() + 1);
+            }
+            break;
+        case 11:
+            builder.setIndicesOptions(IndicesOptions.fromParameters(
+                randomFrom(IndicesOptions.WildcardStates.values()).name().toLowerCase(Locale.ROOT),
+                Boolean.toString(instance.getIndicesOptions().ignoreUnavailable() == false),
+                Boolean.toString(instance.getIndicesOptions().allowNoIndices() == false),
+                Boolean.toString(instance.getIndicesOptions().ignoreThrottled() == false),
+                SearchRequest.DEFAULT_INDICES_OPTIONS));
             break;
         default:
             throw new AssertionError("Illegal randomisation branch");

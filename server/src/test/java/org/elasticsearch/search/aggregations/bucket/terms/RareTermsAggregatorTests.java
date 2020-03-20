@@ -56,7 +56,6 @@ import org.elasticsearch.search.aggregations.AggregationExecutionException;
 import org.elasticsearch.search.aggregations.Aggregations;
 import org.elasticsearch.search.aggregations.Aggregator;
 import org.elasticsearch.search.aggregations.AggregatorTestCase;
-import org.elasticsearch.search.aggregations.InternalAggregation;
 import org.elasticsearch.search.aggregations.InternalMultiBucketAggregation;
 import org.elasticsearch.search.aggregations.MultiBucketConsumerService;
 import org.elasticsearch.search.aggregations.bucket.MultiBucketsAggregation;
@@ -523,16 +522,6 @@ public class RareTermsAggregatorTests extends AggregatorTestCase {
         return documents;
     }
 
-
-    private InternalAggregation buildInternalAggregation(RareTermsAggregationBuilder builder, MappedFieldType fieldType,
-                                                         IndexSearcher searcher) throws IOException {
-        AbstractRareTermsAggregator aggregator = createAggregator(builder, searcher, fieldType);
-        aggregator.preCollection();
-        searcher.search(new MatchAllDocsQuery(), aggregator);
-        aggregator.postCollection();
-        return aggregator.buildAggregation(0L);
-    }
-
     private void testSearchCase(Query query, List<Long> dataset,
                                 Consumer<RareTermsAggregationBuilder> configure,
                                 Consumer<InternalMappedRareTerms> verify, ValueType valueType) throws IOException {
@@ -573,7 +562,9 @@ public class RareTermsAggregatorTests extends AggregatorTestCase {
         try (Directory directory = newDirectory()) {
             try (RandomIndexWriter indexWriter = new RandomIndexWriter(random(), directory)) {
                 Document document = new Document();
-                for (Long value : dataset) {
+                List<Long> shuffledDataset = new ArrayList<>(dataset);
+                Collections.shuffle(shuffledDataset, random());
+                for (Long value : shuffledDataset) {
                     if (frequently()) {
                         indexWriter.commit();
                     }

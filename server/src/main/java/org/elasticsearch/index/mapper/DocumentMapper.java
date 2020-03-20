@@ -85,7 +85,7 @@ public class DocumentMapper implements ToXContentFragment {
                 final MetadataFieldMapper metadataMapper;
                 if (existingMetadataMapper == null) {
                     final TypeParser parser = entry.getValue();
-                    metadataMapper = parser.getDefault(mapperService.fullName(name),
+                    metadataMapper = parser.getDefault(mapperService.fieldType(name),
                             mapperService.documentMapperParser().parserContext());
                 } else {
                     metadataMapper = existingMetadataMapper;
@@ -338,5 +338,22 @@ public class DocumentMapper implements ToXContentFragment {
     @Override
     public XContentBuilder toXContent(XContentBuilder builder, Params params) throws IOException {
         return mapping.toXContent(builder, params);
+    }
+
+    @Override
+    public String toString() {
+        return "DocumentMapper{" +
+            "mapperService=" + mapperService +
+            ", type='" + type + '\'' +
+            ", typeText=" + typeText +
+            ", mappingSource=" + mappingSource +
+            ", mapping=" + mapping +
+            ", documentParser=" + documentParser +
+            ", fieldMappers=" + fieldMappers +
+            ", objectMappers=" + objectMappers +
+            ", hasNestedObjects=" + hasNestedObjects +
+            ", deleteTombstoneMetadataFieldMappers=" + Arrays.toString(deleteTombstoneMetadataFieldMappers) +
+            ", noopTombstoneMetadataFieldMappers=" + Arrays.toString(noopTombstoneMetadataFieldMappers) +
+            '}';
     }
 }

@@ -368,6 +368,7 @@ public class TransportResumeFollowAction extends TransportMasterNodeAction<Resum
         nonReplicatedSettings.add(IndexMetaData.INDEX_BLOCKS_READ_ONLY_ALLOW_DELETE_SETTING);
         nonReplicatedSettings.add(IndexMetaData.INDEX_PRIORITY_SETTING);
         nonReplicatedSettings.add(IndexMetaData.SETTING_WAIT_FOR_ACTIVE_SHARDS);
+        nonReplicatedSettings.add(IndexMetaData.INDEX_HIDDEN_SETTING);
 
         nonReplicatedSettings.add(EnableAllocationDecider.INDEX_ROUTING_REBALANCE_ENABLE_SETTING);
         nonReplicatedSettings.add(EnableAllocationDecider.INDEX_ROUTING_ALLOCATION_ENABLE_SETTING);
@@ -397,6 +398,7 @@ public class TransportResumeFollowAction extends TransportMasterNodeAction<Resum
         nonReplicatedSettings.add(IndexSettings.MAX_SLICES_PER_SCROLL);
         nonReplicatedSettings.add(IndexSettings.MAX_ADJACENCY_MATRIX_FILTERS_SETTING);
         nonReplicatedSettings.add(IndexSettings.DEFAULT_PIPELINE);
+        nonReplicatedSettings.add(IndexSettings.FINAL_PIPELINE);
         nonReplicatedSettings.add(IndexSettings.INDEX_SEARCH_THROTTLED);
         nonReplicatedSettings.add(IndexSettings.INDEX_FLUSH_AFTER_MERGE_THRESHOLD_SIZE_SETTING);
         nonReplicatedSettings.add(IndexSettings.INDEX_TRANSLOG_RETENTION_AGE_SETTING);
@@ -407,6 +409,7 @@ public class TransportResumeFollowAction extends TransportMasterNodeAction<Resum
         nonReplicatedSettings.add(IndexSettings.INDEX_TRANSLOG_SYNC_INTERVAL_SETTING);
         nonReplicatedSettings.add(IndexSettings.INDEX_GC_DELETES_SETTING);
         nonReplicatedSettings.add(IndexSettings.MAX_REFRESH_LISTENERS_PER_SHARD);
+        nonReplicatedSettings.add(IndexSettings.ON_HEAP_ID_TERMS_INDEX);
 
         nonReplicatedSettings.add(IndicesRequestCache.INDEX_CACHE_REQUEST_ENABLED_SETTING);
         nonReplicatedSettings.add(BitsetFilterCache.INDEX_LOAD_RANDOM_ACCESS_FILTERS_EAGERLY_SETTING);

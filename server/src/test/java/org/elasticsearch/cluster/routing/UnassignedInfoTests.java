@@ -35,9 +35,11 @@ import org.elasticsearch.cluster.routing.allocation.FailedShard;
 import org.elasticsearch.common.UUIDs;
 import org.elasticsearch.common.io.stream.ByteBufferStreamInput;
 import org.elasticsearch.common.io.stream.BytesStreamOutput;
+import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.index.Index;
+import org.elasticsearch.repositories.IndexId;
 import org.elasticsearch.snapshots.Snapshot;
 import org.elasticsearch.snapshots.SnapshotId;
 import org.elasticsearch.test.VersionUtils;
@@ -45,6 +47,9 @@ import org.elasticsearch.test.VersionUtils;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.elasticsearch.cluster.routing.ShardRoutingState.STARTED;
 import static org.elasticsearch.cluster.routing.ShardRoutingState.UNASSIGNED;
@@ -81,9 +86,12 @@ public class UnassignedInfoTests extends ESAllocationTestCase {
 
     public void testSerialization() throws Exception {
         UnassignedInfo.Reason reason = RandomPicks.randomFrom(random(), UnassignedInfo.Reason.values());
+        int failedAllocations = randomIntBetween(1, 100);
+        Set<String> failedNodes = IntStream.range(0, between(0, failedAllocations))
+            .mapToObj(n -> "failed-node-" + n).collect(Collectors.toSet());
         UnassignedInfo meta = reason == UnassignedInfo.Reason.ALLOCATION_FAILED ?
             new UnassignedInfo(reason, randomBoolean() ? randomAlphaOfLength(4) : null, null,
-                randomIntBetween(1, 100), System.nanoTime(), System.currentTimeMillis(), false, AllocationStatus.NO_ATTEMPT):
+                failedAllocations, System.nanoTime(), System.currentTimeMillis(), false, AllocationStatus.NO_ATTEMPT, failedNodes):
             new UnassignedInfo(reason, randomBoolean() ? randomAlphaOfLength(4) : null);
         BytesStreamOutput out = new BytesStreamOutput();
         meta.writeTo(out);
@@ -95,17 +103,25 @@ public class UnassignedInfoTests extends ESAllocationTestCase {
         assertThat(read.getMessage(), equalTo(meta.getMessage()));
         assertThat(read.getDetails(), equalTo(meta.getDetails()));
         assertThat(read.getNumFailedAllocations(), equalTo(meta.getNumFailedAllocations()));
+        assertThat(read.getFailedNodeIds(), equalTo(meta.getFailedNodeIds()));
     }
 
     public void testBwcSerialization() throws Exception {
         final UnassignedInfo unassignedInfo = new UnassignedInfo(UnassignedInfo.Reason.INDEX_CLOSED, "message");
         BytesStreamOutput out = new BytesStreamOutput();
-        out.setVersion(VersionUtils.randomVersionBetween(random(), Version.V_6_0_0, VersionUtils.getPreviousVersion(Version.V_7_0_0)));
+        Version version = VersionUtils.randomVersionBetween(random(), Version.V_6_0_0, Version.CURRENT);
+        out.setVersion(version);
         unassignedInfo.writeTo(out);
         out.close();
 
-        UnassignedInfo read = new UnassignedInfo(out.bytes().streamInput());
-        assertThat(read.getReason(), equalTo(UnassignedInfo.Reason.REINITIALIZED));
+        StreamInput in = out.bytes().streamInput();
+        in.setVersion(version);
+        UnassignedInfo read = new UnassignedInfo(in);
+        if (version.before(Version.V_7_0_0)) {
+            assertThat(read.getReason(), equalTo(UnassignedInfo.Reason.REINITIALIZED));
+        } else {
+            assertThat(read.getReason(), equalTo(UnassignedInfo.Reason.INDEX_CLOSED));
+        }
         assertThat(read.getUnassignedTimeInMillis(), equalTo(unassignedInfo.getUnassignedTimeInMillis()));
         assertThat(read.getMessage(), equalTo(unassignedInfo.getMessage()));
         assertThat(read.getDetails(), equalTo(unassignedInfo.getDetails()));
@@ -160,7 +176,8 @@ public class UnassignedInfoTests extends ESAllocationTestCase {
                 .metaData(metaData)
                 .routingTable(RoutingTable.builder().addAsNewRestore(metaData.index("test"), new SnapshotRecoverySource(
                     UUIDs.randomBase64UUID(),
-                    new Snapshot("rep1", new SnapshotId("snp1", UUIDs.randomBase64UUID())), Version.CURRENT, "test"),
+                    new Snapshot("rep1", new SnapshotId("snp1", UUIDs.randomBase64UUID())), Version.CURRENT,
+                        new IndexId("test", UUIDs.randomBase64UUID(random()))),
                     new IntHashSet()).build()).build();
         for (ShardRouting shard : clusterState.getRoutingNodes().shardsWithState(UNASSIGNED)) {
             assertThat(shard.unassignedInfo().getReason(), equalTo(UnassignedInfo.Reason.NEW_INDEX_RESTORED));
@@ -177,7 +194,8 @@ public class UnassignedInfoTests extends ESAllocationTestCase {
                 .routingTable(RoutingTable.builder().addAsRestore(metaData.index("test"),
                     new SnapshotRecoverySource(
                         UUIDs.randomBase64UUID(), new Snapshot("rep1",
-                        new SnapshotId("snp1", UUIDs.randomBase64UUID())), Version.CURRENT, "test")).build()).build();
+                        new SnapshotId("snp1", UUIDs.randomBase64UUID())), Version.CURRENT,
+                        new IndexId("test", UUIDs.randomBase64UUID(random())))).build()).build();
         for (ShardRouting shard : clusterState.getRoutingNodes().shardsWithState(UNASSIGNED)) {
             assertThat(shard.unassignedInfo().getReason(), equalTo(UnassignedInfo.Reason.EXISTING_INDEX_RESTORED));
         }
@@ -312,7 +330,7 @@ public class UnassignedInfoTests extends ESAllocationTestCase {
     public void testRemainingDelayCalculation() throws Exception {
         final long baseTime = System.nanoTime();
         UnassignedInfo unassignedInfo = new UnassignedInfo(UnassignedInfo.Reason.NODE_LEFT, "test", null, 0, baseTime,
-                                                           System.currentTimeMillis(), randomBoolean(), AllocationStatus.NO_ATTEMPT);
+            System.currentTimeMillis(), randomBoolean(), AllocationStatus.NO_ATTEMPT, Collections.emptySet());
         final long totalDelayNanos = TimeValue.timeValueMillis(10).nanos();
         final Settings indexSettings = Settings.builder()
             .put(UnassignedInfo.INDEX_DELAYED_NODE_LEFT_TIMEOUT_SETTING.getKey(), TimeValue.timeValueNanos(totalDelayNanos)).build();

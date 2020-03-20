@@ -5,7 +5,7 @@
  */
 package org.elasticsearch.index.engine;
 
-import org.elasticsearch.action.ActionListener;
+import org.elasticsearch.action.OriginalIndices;
 import org.elasticsearch.action.admin.cluster.state.ClusterStateResponse;
 import org.elasticsearch.action.admin.indices.stats.IndicesStatsResponse;
 import org.elasticsearch.action.delete.DeleteResponse;
@@ -36,16 +36,16 @@ import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchService;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.internal.AliasFilter;
-import org.elasticsearch.search.internal.ShardSearchLocalRequest;
+import org.elasticsearch.search.internal.ShardSearchRequest;
 import org.elasticsearch.test.ESSingleNodeTestCase;
 import org.elasticsearch.xpack.core.XPackClient;
 import org.elasticsearch.xpack.frozen.FrozenIndices;
 import org.hamcrest.Matchers;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 
 import static org.elasticsearch.action.support.WriteRequest.RefreshPolicy.IMMEDIATE;
@@ -118,33 +118,36 @@ public class FrozenIndexTests extends ESSingleNodeTestCase {
         XPackClient xPackClient = new XPackClient(client());
         assertAcked(xPackClient.freeze(new FreezeRequest("index")));
         int numRequests = randomIntBetween(20, 50);
-        CountDownLatch latch = new CountDownLatch(numRequests);
         int numRefreshes = 0;
         for (int i = 0; i < numRequests; i++) {
             numRefreshes++;
-            switch (randomIntBetween(0, 3)) {
+            // make sure that we don't share the frozen reader in concurrent requests since we acquire the
+            // searcher and rewrite the request outside of the search-throttle thread pool
+            switch (randomFrom(Arrays.asList(0, 1, 2))) {
                 case 0:
-                    client().prepareGet("index", "_doc", "" + randomIntBetween(0, 9)).execute(ActionListener.wrap(latch::countDown));
+                    client().prepareGet("index", "_doc", "" + randomIntBetween(0, 9))
+                        .get();
                     break;
                 case 1:
                     client().prepareSearch("index").setIndicesOptions(IndicesOptions.STRICT_EXPAND_OPEN_FORBID_CLOSED)
                         .setSearchType(SearchType.QUERY_THEN_FETCH)
-                        .execute(ActionListener.wrap(latch::countDown));
+                        .get();
                     // in total 4 refreshes 1x query & 1x fetch per shard (we have 2)
                     numRefreshes += 3;
                     break;
                 case 2:
-                   client().prepareTermVectors("index", "_doc", "" + randomIntBetween(0, 9)).execute(ActionListener.wrap(latch::countDown));
+                   client().prepareTermVectors("index", "_doc", "" + randomIntBetween(0, 9))
+                       .get();
                     break;
                 case 3:
                     client().prepareExplain("index", "_doc", "" + randomIntBetween(0, 9)).setQuery(new MatchAllQueryBuilder())
-                        .execute(ActionListener.wrap(latch::countDown));
+                        .get();
                     break;
-                    default:
-                        assert false;
+
+                default:
+                    assert false;
             }
         }
-        latch.await();
         IndicesStatsResponse index = client().admin().indices().prepareStats("index").clear().setRefresh(true).get();
         assertEquals(numRefreshes, index.getTotal().refresh.getTotal());
     }
@@ -254,18 +257,18 @@ public class FrozenIndexTests extends ESSingleNodeTestCase {
             assertFalse(indexService.getIndexSettings().isSearchThrottled());
             SearchService searchService = getInstanceFromNode(SearchService.class);
             SearchRequest searchRequest = new SearchRequest().allowPartialSearchResults(true);
-            assertTrue(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertTrue(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
 
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             searchRequest.source(sourceBuilder);
             sourceBuilder.query(QueryBuilders.rangeQuery("field").gte("2010-01-03||+2d").lte("2010-01-04||+2d/d"));
-            assertTrue(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertTrue(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
 
             sourceBuilder.query(QueryBuilders.rangeQuery("field").gt("2010-01-06T02:00").lt("2010-01-07T02:00"));
-            assertFalse(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertFalse(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
         }
 
         XPackClient xPackClient = new XPackClient(client());
@@ -279,18 +282,18 @@ public class FrozenIndexTests extends ESSingleNodeTestCase {
             assertTrue(indexService.getIndexSettings().isSearchThrottled());
             SearchService searchService = getInstanceFromNode(SearchService.class);
             SearchRequest searchRequest = new SearchRequest().allowPartialSearchResults(true);
-            assertTrue(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertTrue(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
 
             SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
             sourceBuilder.query(QueryBuilders.rangeQuery("field").gte("2010-01-03||+2d").lte("2010-01-04||+2d/d"));
             searchRequest.source(sourceBuilder);
-            assertTrue(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertTrue(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
 
             sourceBuilder.query(QueryBuilders.rangeQuery("field").gt("2010-01-06T02:00").lt("2010-01-07T02:00"));
-            assertFalse(searchService.canMatch(new ShardSearchLocalRequest(searchRequest, shard.shardId(), 1,
-                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)));
+            assertFalse(searchService.canMatch(new ShardSearchRequest(OriginalIndices.NONE, searchRequest, shard.shardId(), 1,
+                new AliasFilter(null, Strings.EMPTY_ARRAY), 1f, -1, null, null)).canMatch());
 
             IndicesStatsResponse response = client().admin().indices().prepareStats("index").clear().setRefresh(true).get();
             assertEquals(0, response.getTotal().refresh.getTotal()); // never opened a reader

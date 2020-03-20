@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 
 /**
  * Provides a number of utility methods for interacting with {@link Settings} and {@link Setting} inside a {@link Realm}.
- * Settings for realms use an {@link Setting#affixKeySetting(String, String, Function, Setting.AffixSetting[]) affix} style,
+ * Settings for realms use an {@link Setting#affixKeySetting(String, String, Function, Setting.AffixSettingDependency[]) affix} style,
  * where the <em>type</em> of the realm is part of the prefix, and name of the realm is the variable portion
  * (That is to set the order in a file realm named "file1", then full setting key would be
  * {@code xpack.security.authc.realms.file.file1.order}.
@@ -29,10 +29,11 @@ import java.util.stream.Collectors;
 public class RealmSettings {
 
     public static final String PREFIX = "xpack.security.authc.realms.";
+    public static final String ORDER_SETTING_KEY = "order";
 
     public static final Function<String, Setting.AffixSetting<Boolean>> ENABLED_SETTING = affixSetting("enabled",
             key -> Setting.boolSetting(key, true, Setting.Property.NodeScope));
-    public static final Function<String, Setting.AffixSetting<Integer>> ORDER_SETTING = affixSetting("order",
+    public static final Function<String, Setting.AffixSetting<Integer>> ORDER_SETTING = affixSetting(ORDER_SETTING_KEY,
             key -> Setting.intSetting(key, Integer.MAX_VALUE, Setting.Property.NodeScope));
 
     public static String realmSettingPrefix(String type) {
@@ -74,7 +75,7 @@ public class RealmSettings {
      * The {@code Function} takes the <em>realm-type</em> as an argument.
      * @param suffix The suffix of the setting (everything following the realm name in the affix setting)
      * @param delegateFactory A factory to produce the concrete setting.
-     *                       See {@link Setting#affixKeySetting(Setting.AffixKey, Function, Setting.AffixSetting[])}
+     *                       See {@link Setting#affixKeySetting(String, String, Function, Setting.AffixSettingDependency[])}
      */
     public static <T> Function<String, Setting.AffixSetting<T>> affixSetting(String suffix, Function<String, Setting<T>> delegateFactory) {
         return realmType -> Setting.affixKeySetting(realmSettingPrefix(realmType), suffix, delegateFactory);

@@ -55,6 +55,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import static org.elasticsearch.cluster.metadata.IndexMetaData.SETTING_NUMBER_OF_REPLICAS;
@@ -64,10 +65,10 @@ import static org.elasticsearch.search.suggest.SuggestBuilders.phraseSuggestion;
 import static org.elasticsearch.search.suggest.SuggestBuilders.termSuggestion;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertAcked;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertNoFailures;
+import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertRequestBuilderThrows;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSuggestion;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSuggestionPhraseCollateMatchExists;
 import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertSuggestionSize;
-import static org.elasticsearch.test.hamcrest.ElasticsearchAssertions.assertThrows;
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
@@ -292,12 +293,12 @@ public class SuggestSearchIT extends ESIntegTestCase {
         {
             SearchRequestBuilder searchBuilder = client().prepareSearch().setSize(0);
             searchBuilder.suggest(new SuggestBuilder().setGlobalText("tetsting sugestion").addSuggestion("did_you_mean", phraseSuggestion));
-            assertThrows(searchBuilder, SearchPhaseExecutionException.class);
+            assertRequestBuilderThrows(searchBuilder, SearchPhaseExecutionException.class);
         }
         {
             SearchRequestBuilder searchBuilder = client().prepareSearch().setSize(0);
             searchBuilder.suggest(new SuggestBuilder().setGlobalText("tetsting sugestion").addSuggestion("did_you_mean", phraseSuggestion));
-            assertThrows(searchBuilder, SearchPhaseExecutionException.class);
+            assertRequestBuilderThrows(searchBuilder, SearchPhaseExecutionException.class);
         }
     }
 
@@ -747,7 +748,7 @@ public class SuggestSearchIT extends ESIntegTestCase {
                 .suggest(
                         new SuggestBuilder().setGlobalText("tetsting sugestion").addSuggestion("did_you_mean",
                                 phraseSuggestion("fielddoesnotexist").maxErrors(5.0f)));
-        assertThrows(request, SearchPhaseExecutionException.class);
+        assertRequestBuilderThrows(request, SearchPhaseExecutionException.class);
 
         // When searching on a shard which does not hold yet any document of an existing type, we should not fail
         SearchResponse searchResponse = client().prepareSearch().setSize(0)
@@ -1136,7 +1137,12 @@ public class SuggestSearchIT extends ESIntegTestCase {
         }
 
         @Override
-        public <T> T compile(String scriptName, String scriptSource, ScriptContext<T> context, Map<String, String> params) {
+        public <T> T compile(
+            String scriptName,
+            String scriptSource,
+            ScriptContext<T> context,
+            Map<String, String> params
+        ) {
             if (context.instanceClazz != TemplateScript.class) {
                 throw new UnsupportedOperationException();
             }
@@ -1154,6 +1160,11 @@ public class SuggestSearchIT extends ESIntegTestCase {
                 };
             };
             return context.factoryClazz.cast(factory);
+        }
+
+        @Override
+        public Set<ScriptContext<?>> getSupportedContexts() {
+            return Collections.singleton(TemplateScript.CONTEXT);
         }
     }
 

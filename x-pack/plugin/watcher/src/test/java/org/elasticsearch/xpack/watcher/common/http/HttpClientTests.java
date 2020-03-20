@@ -76,9 +76,10 @@ import static org.mockito.Mockito.when;
 
 public class HttpClientTests extends ESTestCase {
 
-    private MockWebServer webServer = new MockWebServer();
+    private final MockWebServer webServer = new MockWebServer();
+    private final Environment environment = TestEnvironment.newEnvironment(Settings.builder().put("path.home", createTempDir()).build());
+
     private HttpClient httpClient;
-    private Environment environment = TestEnvironment.newEnvironment(Settings.builder().put("path.home", createTempDir()).build());
 
     @Before
     public void init() throws Exception {
@@ -92,7 +93,9 @@ public class HttpClientTests extends ESTestCase {
     @After
     public void shutdown() throws IOException {
         webServer.close();
-        httpClient.close();
+        if (httpClient != null) {
+            httpClient.close();
+        }
     }
 
     public void testBasics() throws Exception {
@@ -197,6 +200,7 @@ public class HttpClientTests extends ESTestCase {
             // We can't use the client created above for the server since it is only a truststore
             secureSettings.setString("xpack.security.http.ssl.secure_key_passphrase", "testnode");
             Settings settings2 = Settings.builder()
+                .put("xpack.security.http.ssl.enabled", true)
                 .put("xpack.security.http.ssl.key", keyPath)
                 .put("xpack.security.http.ssl.certificate", certPath)
                 .putList("xpack.security.http.ssl.supported_protocols", getProtocols())
@@ -226,6 +230,7 @@ public class HttpClientTests extends ESTestCase {
             // We can't use the client created above for the server since it only defines a truststore
             secureSettings.setString("xpack.security.http.ssl.secure_key_passphrase", "testnode-no-subjaltname");
             Settings settings2 = Settings.builder()
+                .put("xpack.security.http.ssl.enabled", true)
                 .put("xpack.security.http.ssl.key", keyPath)
                 .put("xpack.security.http.ssl.certificate", certPath)
                 .putList("xpack.security.http.ssl.supported_protocols", getProtocols())
@@ -383,6 +388,8 @@ public class HttpClientTests extends ESTestCase {
             .put("xpack.http.ssl.key", keyPath)
             .put("xpack.http.ssl.certificate", certPath)
             .putList("xpack.http.ssl.supported_protocols", getProtocols())
+            .put("xpack.security.http.ssl.enabled", false)
+            .putList("xpack.security.http.ssl.supported_protocols", getProtocols())
             .setSecureSettings(serverSecureSettings)
             .build();
         TestsSSLService sslService = new TestsSSLService(serverSettings, environment);
@@ -397,7 +404,9 @@ public class HttpClientTests extends ESTestCase {
                     .put(HttpSettings.PROXY_SCHEME.getKey(), "https")
                 .put("xpack.http.ssl.certificate_authorities", trustedCertPath)
                 .putList("xpack.http.ssl.supported_protocols", getProtocols())
-                    .build();
+                .putList("xpack.security.http.ssl.supported_protocols", getProtocols())
+                .put("xpack.security.http.ssl.enabled", false)
+                .build();
 
             HttpRequest.Builder requestBuilder = HttpRequest.builder("localhost", webServer.getPort())
                     .method(HttpMethod.GET)

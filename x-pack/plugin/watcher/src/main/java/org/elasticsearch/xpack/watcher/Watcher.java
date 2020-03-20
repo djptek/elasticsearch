@@ -15,6 +15,7 @@ import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.bootstrap.BootstrapCheck;
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.OriginSettingClient;
 import org.elasticsearch.cluster.metadata.IndexNameExpressionResolver;
 import org.elasticsearch.cluster.metadata.IndexTemplateMetaData;
 import org.elasticsearch.cluster.node.DiscoveryNodes;
@@ -40,12 +41,13 @@ import org.elasticsearch.core.internal.io.IOUtils;
 import org.elasticsearch.env.Environment;
 import org.elasticsearch.env.NodeEnvironment;
 import org.elasticsearch.index.IndexModule;
+import org.elasticsearch.indices.SystemIndexDescriptor;
 import org.elasticsearch.license.XPackLicenseState;
 import org.elasticsearch.node.Node;
-import org.elasticsearch.plugins.ActionPlugin;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.plugins.ReloadablePlugin;
 import org.elasticsearch.plugins.ScriptPlugin;
+import org.elasticsearch.plugins.SystemIndexPlugin;
 import org.elasticsearch.rest.RestController;
 import org.elasticsearch.rest.RestHandler;
 import org.elasticsearch.script.ScriptContext;
@@ -55,7 +57,6 @@ import org.elasticsearch.threadpool.ExecutorBuilder;
 import org.elasticsearch.threadpool.FixedExecutorBuilder;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.watcher.ResourceWatcherService;
-import org.elasticsearch.xpack.core.ClientHelper;
 import org.elasticsearch.xpack.core.XPackPlugin;
 import org.elasticsearch.xpack.core.XPackSettings;
 import org.elasticsearch.xpack.core.ssl.SSLService;
@@ -138,6 +139,7 @@ import org.elasticsearch.xpack.watcher.notification.pagerduty.PagerDutyService;
 import org.elasticsearch.xpack.watcher.notification.slack.SlackService;
 import org.elasticsearch.xpack.watcher.rest.action.RestAckWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestActivateWatchAction;
+import org.elasticsearch.xpack.watcher.rest.action.RestActivateWatchAction.DeactivateRestHandler;
 import org.elasticsearch.xpack.watcher.rest.action.RestDeleteWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestExecuteWatchAction;
 import org.elasticsearch.xpack.watcher.rest.action.RestGetWatchAction;
@@ -199,7 +201,7 @@ import static java.util.Collections.emptyList;
 import static org.elasticsearch.common.settings.Setting.Property.NodeScope;
 import static org.elasticsearch.xpack.core.ClientHelper.WATCHER_ORIGIN;
 
-public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, ReloadablePlugin {
+public class Watcher extends Plugin implements SystemIndexPlugin, ScriptPlugin, ReloadablePlugin {
 
     // This setting is only here for backward compatibility reasons as 6.x indices made use of it. It can be removed in 8.x.
     @Deprecated
@@ -251,7 +253,8 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
     public Collection<Object> createComponents(Client client, ClusterService clusterService, ThreadPool threadPool,
                                                ResourceWatcherService resourceWatcherService, ScriptService scriptService,
                                                NamedXContentRegistry xContentRegistry, Environment environment,
-                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry) {
+                                               NodeEnvironment nodeEnvironment, NamedWriteableRegistry namedWriteableRegistry,
+                                               IndexNameExpressionResolver expressionResolver) {
         if (enabled == false) {
             return Collections.emptyList();
         }
@@ -328,7 +331,7 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
         final InputRegistry inputRegistry = new InputRegistry(inputFactories);
         inputFactories.put(ChainInput.TYPE, new ChainInputFactory(inputRegistry));
 
-        bulkProcessor = BulkProcessor.builder(ClientHelper.clientWithOrigin(client, WATCHER_ORIGIN), new BulkProcessor.Listener() {
+        bulkProcessor = BulkProcessor.builder(new OriginSettingClient(client, WATCHER_ORIGIN)::bulk, new BulkProcessor.Listener() {
             @Override
             public void beforeBulk(long executionId, BulkRequest request) {
             }
@@ -569,14 +572,16 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             return emptyList();
         }
         return Arrays.asList(
-                new RestPutWatchAction(restController),
-                new RestDeleteWatchAction(restController),
-                new RestWatcherStatsAction(restController),
-                new RestGetWatchAction(restController),
-                new RestWatchServiceAction(restController),
-                new RestAckWatchAction(restController),
-                new RestActivateWatchAction(restController),
-                new RestExecuteWatchAction(restController));
+                new RestPutWatchAction(),
+                new RestDeleteWatchAction(),
+                new RestWatcherStatsAction(),
+                new RestGetWatchAction(),
+                new RestWatchServiceAction(),
+                new RestWatchServiceAction.StopRestHandler(),
+                new RestAckWatchAction(),
+                new RestActivateWatchAction(),
+                new DeactivateRestHandler(),
+                new RestExecuteWatchAction());
     }
 
     @Override
@@ -694,5 +699,13 @@ public class Watcher extends Plugin implements ActionPlugin, ScriptPlugin, Reloa
             return;
         }
         reloadableServices.forEach(s -> s.reload(settings));
+    }
+
+    @Override
+    public Collection<SystemIndexDescriptor> getSystemIndexDescriptors(Settings settings) {
+        return Collections.unmodifiableList(Arrays.asList(
+            new SystemIndexDescriptor(Watch.INDEX, "Contains Watch definitions"),
+            new SystemIndexDescriptor(TriggeredWatchStoreField.INDEX_NAME, "Used to track current and queued Watch execution")
+        ));
     }
 }

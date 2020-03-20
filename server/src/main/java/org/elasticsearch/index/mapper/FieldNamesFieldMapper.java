@@ -96,16 +96,23 @@ public class FieldNamesFieldMapper extends MetadataFieldMapper {
     }
 
     public static class TypeParser implements MetadataFieldMapper.TypeParser {
+
+        public static final String ENABLED_DEPRECATION_MESSAGE = "Index [{}] uses the deprecated `enabled` setting for `_field_names`. "
+                + "Disabling _field_names is not necessary because it no longer carries a large index overhead. Support for this setting "
+                + "will be removed in a future major version. Please remove it from your mappings and templates.";
+
         @Override
         public MetadataFieldMapper.Builder<?,?> parse(String name, Map<String, Object> node,
                                                       ParserContext parserContext) throws MapperParsingException {
-            Builder builder = new Builder(parserContext.mapperService().fullName(NAME));
+            Builder builder = new Builder(parserContext.mapperService().fieldType(NAME));
 
             for (Iterator<Map.Entry<String, Object>> iterator = node.entrySet().iterator(); iterator.hasNext();) {
                 Map.Entry<String, Object> entry = iterator.next();
                 String fieldName = entry.getKey();
                 Object fieldNode = entry.getValue();
                 if (fieldName.equals("enabled")) {
+                    String indexName = parserContext.mapperService().index().getName();
+                    deprecationLogger.deprecatedAndMaybeLog("field_names_enabled_parameter", ENABLED_DEPRECATION_MESSAGE, indexName);
                     builder.enabled(XContentMapValues.nodeBooleanValue(fieldNode, name + ".enabled"));
                     iterator.remove();
                 }

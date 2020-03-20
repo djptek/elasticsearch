@@ -48,7 +48,6 @@ public abstract class CcrSingleNodeTestCase extends ESSingleNodeTestCase {
         builder.put(XPackSettings.MONITORING_ENABLED.getKey(), false);
         builder.put(XPackSettings.WATCHER_ENABLED.getKey(), false);
         builder.put(XPackSettings.MACHINE_LEARNING_ENABLED.getKey(), false);
-        builder.put(XPackSettings.LOGSTASH_ENABLED.getKey(), false);
         builder.put(LicenseService.SELF_GENERATED_LICENSE_TYPE.getKey(), "trial");
         // Let cluster state api return quickly in order to speed up auto follow tests:
         builder.put(CcrSettings.CCR_WAIT_FOR_METADATA_TIMEOUT.getKey(), TimeValue.timeValueMillis(100));
@@ -67,11 +66,9 @@ public abstract class CcrSingleNodeTestCase extends ESSingleNodeTestCase {
         updateSettingsRequest.transientSettings(Settings.builder().put("cluster.remote.local.seeds", address));
         assertAcked(client().admin().cluster().updateSettings(updateSettingsRequest).actionGet());
 
-        assertBusy(() -> {
-            List<RemoteConnectionInfo> infos = client().execute(RemoteInfoAction.INSTANCE, new RemoteInfoRequest()).get().getInfos();
-            assertThat(infos.size(), equalTo(1));
-            assertThat(infos.get(0).getNumNodesConnected(), equalTo(1));
-        });
+        List<RemoteConnectionInfo> infos = client().execute(RemoteInfoAction.INSTANCE, new RemoteInfoRequest()).get().getInfos();
+        assertThat(infos.size(), equalTo(1));
+        assertTrue(infos.get(0).isConnected());
     }
 
     @Before

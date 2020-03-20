@@ -19,6 +19,7 @@
 
 package org.elasticsearch.index.mapper;
 
+import org.apache.logging.log4j.LogManager;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexableField;
@@ -28,11 +29,13 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.util.BytesRef;
+import org.elasticsearch.common.logging.DeprecationLogger;
 import org.elasticsearch.common.lucene.Lucene;
+import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.index.Index;
 import org.elasticsearch.index.IndexSettings;
-import org.elasticsearch.index.fielddata.AtomicFieldData;
+import org.elasticsearch.index.fielddata.LeafFieldData;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.fielddata.IndexFieldData.XFieldComparatorSource.Nested;
 import org.elasticsearch.index.fielddata.IndexFieldDataCache;
@@ -41,8 +44,12 @@ import org.elasticsearch.index.fielddata.SortedBinaryDocValues;
 import org.elasticsearch.index.fielddata.fieldcomparator.BytesRefFieldComparatorSource;
 import org.elasticsearch.index.fielddata.plain.PagedBytesIndexFieldData;
 import org.elasticsearch.index.query.QueryShardContext;
+import org.elasticsearch.indices.IndicesService;
 import org.elasticsearch.indices.breaker.CircuitBreakerService;
+import org.elasticsearch.search.DocValueFormat;
 import org.elasticsearch.search.MultiValueMode;
+import org.elasticsearch.search.sort.BucketedSort;
+import org.elasticsearch.search.sort.SortOrder;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -55,6 +62,11 @@ import java.util.Map;
  * queries.
  */
 public class IdFieldMapper extends MetadataFieldMapper {
+    private static final DeprecationLogger deprecationLogger = new DeprecationLogger(LogManager.getLogger(IdFieldMapper.class));
+    static final String ID_FIELD_DATA_DEPRECATION_MESSAGE =
+        "Loading the fielddata on the _id field is deprecated and will be removed in future versions. "
+            + "If you require sorting or aggregating on this field you should also include the id in the "
+            + "body of your documents, and map this field as a keyword field that has [doc_values] enabled";
 
     public static final String NAME = "_id";
 
@@ -158,9 +170,15 @@ public class IdFieldMapper extends MetadataFieldMapper {
                 @Override
                 public IndexFieldData<?> build(IndexSettings indexSettings, MappedFieldType fieldType, IndexFieldDataCache cache,
                         CircuitBreakerService breakerService, MapperService mapperService) {
+                    if (mapperService.isIdFieldDataEnabled() == false) {
+                        throw new IllegalArgumentException("Fielddata access on the _id field is disallowed, "
+                            + "you can re-enable it by updating the dynamic cluster setting: "
+                            + IndicesService.INDICES_ID_FIELD_DATA_ENABLED_SETTING.getKey());
+                    }
+                    deprecationLogger.deprecatedAndMaybeLog("id_field_data", ID_FIELD_DATA_DEPRECATION_MESSAGE);
                     final IndexFieldData<?> fieldData = fieldDataBuilder.build(indexSettings, fieldType, cache,
                         breakerService, mapperService);
-                    return new IndexFieldData<AtomicFieldData>() {
+                    return new IndexFieldData<LeafFieldData>() {
 
                         @Override
                         public Index index() {
@@ -173,12 +191,12 @@ public class IdFieldMapper extends MetadataFieldMapper {
                         }
 
                         @Override
-                        public AtomicFieldData load(LeafReaderContext context) {
+                        public LeafFieldData load(LeafReaderContext context) {
                             return wrap(fieldData.load(context));
                         }
 
                         @Override
-                        public AtomicFieldData loadDirect(LeafReaderContext context) throws Exception {
+                        public LeafFieldData loadDirect(LeafReaderContext context) throws Exception {
                             return wrap(fieldData.loadDirect(context));
                         }
 
@@ -187,6 +205,12 @@ public class IdFieldMapper extends MetadataFieldMapper {
                             XFieldComparatorSource source = new BytesRefFieldComparatorSource(this, missingValue,
                                 sortMode, nested);
                             return new SortField(getFieldName(), source, reverse);
+                        }
+
+                        @Override
+                        public BucketedSort newBucketedSort(BigArrays bigArrays, Object missingValue, MultiValueMode sortMode,
+                                Nested nested, SortOrder sortOrder, DocValueFormat format, int bucketSize, BucketedSort.ExtraData extra) {
+                            throw new UnsupportedOperationException("can't sort on the [" + CONTENT_TYPE + "] field");
                         }
 
                         @Override
@@ -200,8 +224,8 @@ public class IdFieldMapper extends MetadataFieldMapper {
         }
     }
 
-    private static AtomicFieldData wrap(AtomicFieldData in) {
-        return new AtomicFieldData() {
+    private static LeafFieldData wrap(LeafFieldData in) {
+        return new LeafFieldData() {
 
             @Override
             public void close() {
