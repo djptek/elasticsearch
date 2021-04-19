@@ -197,8 +197,7 @@ final class BootstrapChecks {
         if (Constants.LINUX) {
             checks.add(new MaxMapCountCheck());
         }
-	// skip for 32 bit JVM
-        //checks.add(new ClientJvmCheck());
+        checks.add(new ClientJvmCheck());
         checks.add(new UseSerialGCCheck());
         checks.add(new SystemCallFilterCheck(BootstrapSettings.SYSTEM_CALL_FILTER_SETTING.get(settings)));
         checks.add(new OnErrorCheck());
@@ -466,9 +465,6 @@ final class BootstrapChecks {
 
     }
 
-    /*
-     * disabled for 32 bit JVM compatibility
-     *
     static class ClientJvmCheck implements BootstrapCheck {
 
         @Override
@@ -490,7 +486,6 @@ final class BootstrapChecks {
         }
 
     }
-    */
 
     /**
      * Checks if the serial collector is in use. This collector is single-threaded and devastating
